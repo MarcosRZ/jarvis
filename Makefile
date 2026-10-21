@@ -14,10 +14,20 @@ HA_COMPOSE := docker compose --profile homeassistant
 ENV := dev
 ENV_FILE := $(CLIENT_DIR)/.env.$(ENV)
 
-.PHONY: build test integration lint clean services-up services-down services-status services-logs ha-up ha-down ha-reset run
+.PHONY: build test integration lint clean services-up services-down services-status services-logs ha-up ha-down ha-reset run windows
 
 build:
 	cd $(CLIENT_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o bin/$(BINARY) ./cmd/voice-client
+
+# Builds client/bin/voice-client.exe for Windows amd64 in a container with
+# MinGW (cgo for the audio library). It needs only Windows system DLLs.
+WINDOWS_BUILDER := golang:1.27.2-bookworm
+windows:
+	docker run --rm -v "$(CURDIR)/$(CLIENT_DIR)":/src -v jarvis-gomod:/go/pkg/mod -w /src $(WINDOWS_BUILDER) sh -c '\
+		apt-get update -qq >/dev/null && apt-get install -y -qq gcc-mingw-w64-x86-64 >/dev/null && \
+		CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
+		go build -ldflags "-X main.version=$(VERSION) -extldflags=-static" -o bin/$(BINARY).exe ./cmd/voice-client'
+	@ls -l $(BIN_DIR)/$(BINARY).exe
 
 test:
 	cd $(CLIENT_DIR) && go test ./...

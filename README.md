@@ -398,7 +398,7 @@ Package `client/internal/wyoming` implements the framing in "Protocol contracts"
 |---|---|---|---|
 | macOS arm64 | yes | yes | Capture: real sound (peak -30 dBFS while speaking), 16000 Hz from a 48000 Hz device. Playback: `loopback` recording heard on the built-in speakers. Verified 2026-10-20. |
 | Linux arm64 | yes (`golang:1.27` container) | yes | Not tested. The container has no sound system, so miniaudio used its null device. |
-| Windows amd64 | yes (cross-build with MinGW) | no | Not tested. |
+| Windows amd64 | yes (`make windows`, MinGW in a container) | no | Not tested. See "Windows". |
 | Linux amd64, macOS amd64, Windows arm64 | not tried | no | Not tested. |
 
 Native build requirements:
@@ -406,6 +406,34 @@ Native build requirements:
 - macOS: Xcode Command Line Tools. miniaudio uses Core Audio.
 - Linux: `gcc`. miniaudio loads ALSA, PulseAudio or JACK at run time, so no `-dev` package is necessary to build. At run time, install `libasound2` or PulseAudio/PipeWire. With no sound system, miniaudio uses a null device that captures silence.
 - Windows: a MinGW-w64 C compiler (`x86_64-w64-mingw32-gcc` for a cross-build, `CC=x86_64-w64-mingw32-gcc CGO_ENABLED=1 GOOS=windows GOARCH=amd64`). miniaudio uses WASAPI.
+
+### Windows
+
+The voice services run in Docker Desktop (WSL 2), as on the Mac. The client runs as `voice-client.exe`, not in Docker: a Linux container on Windows has no direct access to the Windows microphone and speaker. The client on Windows is not tested with a real microphone yet; test it step by step (below).
+
+**On the Mac:** `make windows` builds `client/bin/voice-client.exe` in a `golang:1.27.2-bookworm` container with MinGW-w64. The file needs only `KERNEL32.dll` and `msvcrt.dll`; miniaudio loads WASAPI at run time.
+
+**On the Windows PC, once:**
+
+1. Docker Desktop with the WSL 2 engine, and "Start Docker Desktop when you sign in" on.
+2. `git clone` this repository. `.gitattributes` keeps LF line endings, also on Windows.
+3. Copy `client/bin/voice-client.exe` from the Mac. Create `client/.env.prod` from `client/.env.prod.example` (better with a new Home Assistant token for this PC). Optionally copy `server/models/` (about 1 GB) to skip the first download.
+4. Settings > Privacy & security > Microphone: turn on "Let desktop apps access your microphone".
+5. Allow local scripts once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+**Run and test** (PowerShell, in the repository folder). `scripts/run.ps1` is the `make run` of Windows: it waits for Docker, starts the voice services, loads `client/.env.prod` (`-Env dev` for the other file; the `VOICE_*` variables of the system are removed first) and runs the client with the given command, `run` by default.
+
+```powershell
+.\scripts\run.ps1 devices      # microphone and speaker names, for VOICE_INPUT_DEVICE and VOICE_OUTPUT_DEVICE
+.\scripts\run.ps1 audio-test   # records and plays back
+.\scripts\run.ps1 wake-test    # say "Aleksei"
+.\scripts\run.ps1 stt-test     # say a command
+.\scripts\run.ps1              # the assistant
+```
+
+**Start at log-on.** `.\scripts\install-autostart.ps1` registers the scheduled task "Jarvis voice assistant": at log-on it runs `run.ps1 -KeepRunning` in a hidden window, starts the client again 5 s after it stops, and appends the log to `logs/voice-client.log` (git-ignored). A Windows service would have no access to the microphone, so it is a task in your session; turn on the automatic log-on of Windows. `-Uninstall` removes the task.
+
+**Update:** `git pull`, copy a new `voice-client.exe` when the Go code changed, and restart the task (or log off and on).
 
 ### Microphone permission on macOS
 
