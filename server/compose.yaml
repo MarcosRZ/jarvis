@@ -1,0 +1,113 @@
+name: voice-assistant
+
+services:
+  openwakeword:
+    image: rhasspy/wyoming-openwakeword:2.1.0@sha256:52cb1168731a1849fc28cf339c935fde58746bbabc94226668a40ef6ddf5d42b
+    # Without an init process, PID 1 ignores SIGTERM and "docker compose stop"
+    # waits 10 s, then kills the service (exit 137).
+    init: true
+    command:
+      - --threshold
+      - ${WAKEWORD_THRESHOLD:-0.5}
+      - --refractory-seconds
+      - ${WAKEWORD_REFRACTORY_SECONDS:-2}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${OPENWAKEWORD_PORT:-10400}:10400"
+    restart: unless-stopped
+    # The image has no health check. This one does the describe round trip of
+    # the Whisper and Piper image checks, with the wyoming library of the image.
+    healthcheck:
+      test:
+        - CMD
+        - /usr/src/.venv/bin/python3
+        - -c
+        - |
+          import asyncio, sys
+          from wyoming.client import AsyncClient
+          from wyoming.info import Describe, Info
+
+          async def check():
+              async with AsyncClient.from_uri("tcp://127.0.0.1:10400") as client:
+                  await client.write_event(Describe().event())
+                  while True:
+                      event = await client.read_event()
+                      if event is None:
+                          return "connection closed without info"
+                      if Info.is_type(event.type):
+                          return None if Info.from_event(event).wake else "no wake programs in info"
+
+          try:
+              problem = asyncio.run(asyncio.wait_for(check(), timeout=10))
+          except Exception as err:
+              problem = str(err) or type(err).__name__
+          if problem:
+              sys.exit("unhealthy: " + problem)
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+      start_interval: 5s
+
+  whisper:
+    image: rhasspy/wyoming-whisper:3.8.1@sha256:ba6fcb6056ebe237d15a325381763a80af2fc8fcedaa04f6a714a7375eb20d80
+    # Same SIGTERM problem as openwakeword.
+    init: true
+    command:
+      - --model
+      - ${WHISPER_MODEL:-base}
+      - --language
+      - ${WHISPER_LANGUAGE:-es}
+      # The prompt steers Whisper base to the command words. Measured on
+      # 2026-10-20: "¿Qué hora es?" correct in 5 of 5 runs, without it 1 of 5.
+      - --initial-prompt
+      - ${WHISPER_INITIAL_PROMPT:-¿Qué hora es? Repite lo que he dicho. Cancela. ¿Qué puedes hacer?}
+    volumes:
+      - ./models/whisper:/data
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${WHISPER_PORT:-10300}:10300"
+    restart: unless-stopped
+
+  piper:
+    image: rhasspy/wyoming-piper:2.5.2@sha256:7d39aafac409c2b6b09d999ed04d84c311d632e558b35baa60fad6aac722af7a
+    command:
+      - --voice
+      - ${PIPER_VOICE:-es_ES-sharvard-medium}
+    volumes:
+      - ./models/piper:/data
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PIPER_PORT:-10200}:10200"
+    restart: unless-stopped
+    # When the voice download fails, Piper logs the error and still starts, and
+    # the image check stays healthy. So check for the voice file first.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test -s /data/${PIPER_VOICE:-es_ES-sharvard-medium}.onnx
+          || { echo "unhealthy: voice file /data/${PIPER_VOICE:-es_ES-sharvard-medium}.onnx is missing; see the piper logs"; exit 1; };
+          exec /usr/src/.venv/bin/python3 -m wyoming_piper.health_check
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 120s
+      start_interval: 5s
+
+  # Development Home Assistant with demo lights and switches. It starts only
+  # with the profile: make ha-up.
+  homeassistant:
+    profiles: [homeassistant]
+    image: ghcr.io/home-assistant/home-assistant:2026.10.2@sha256:33afb0659d786213264c2211f8d91c5fe87461c56eba6a3a546eb05fc71e89f4
+    volumes:
+      - ./homeassistant:/config
+    environment:
+      - TZ=${TZ:-Europe/Madrid}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${HA_PORT:-8123}:8123"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8123/manifest.json"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+      start_interval: 3s

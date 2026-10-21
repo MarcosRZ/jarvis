@@ -1,0 +1,8 @@
+server/.env
+server/models/*
+!server/models/.gitkeep
+server/homeassistant/*
+!server/homeassistant/configuration.yaml
+client/bin/
+client/.env.prod
+.claude/settings.local.json

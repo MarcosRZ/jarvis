@@ -1,0 +1,5 @@
+# LF everywhere, also on a Windows checkout: the env files and shell scripts
+# are read by sh, and compose.yaml by Docker.
+* text=auto eol=lf
+*.exe binary
+*.onnx binary

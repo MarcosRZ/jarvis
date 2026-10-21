@@ -1,0 +1,4 @@
+# Development Home Assistant for the voice assistant (make ha-up). The demo
+# integration gives lights and switches; ha-dev-setup gives them Spanish names.
+default_config:
+demo:

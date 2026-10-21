@@ -1,0 +1,33 @@
+# Client configuration for the settings that have no flag or environment
+# variable. A key that is not here keeps its default. "make run" uses this file
+# through VOICE_CONFIG in client/.env.dev and client/.env.prod.
+
+wake_word:
+  # Sound after the wake word, before the recording starts.
+  beep:
+    enabled: true
+    # Notes in Hz, played one after the other (1 to 8, from 20 to 20000 Hz).
+    # The default is A5 and E6, a short rising fifth.
+    notes: [880, 1318.5]
+    # Length of each note, greater than 0 and at most 1s.
+    note_duration: 70ms
+    # Fade in and out of each note, against clicks; 0 to half of note_duration.
+    fade: 8ms
+    # Peak level in dBFS, from -60 to below 0. -6 is louder, -20 is quieter.
+    level: -14
+
+commands:
+  # Correction of misheard words when the text does not match a command or a
+  # device exactly, for example "Enciende el Udelsalom" for "la luz del salón".
+  # A score is how alike two phrases sound, from 0 to 1. The log line
+  # "msg=guess" shows each guess and its score (with --log-transcripts).
+  matching:
+    # A guess with this score or more is used. 1 uses only names that sound
+    # exactly the same ("salom" for "salón").
+    accept: 0.8
+    # A device guess with this score or more, but below accept, is only
+    # suggested: "¿Querías decir la luz del salón?". At most accept.
+    suggest: 0.7
+    # The best guess must beat the next one by this much to be used, so that
+    # "luz del sa..." never picks one of two similar lights. From 0 to below 1.
+    margin: 0.1
