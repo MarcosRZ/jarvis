@@ -73,6 +73,12 @@ services:
       - ${WHISPER_BEAM_SIZE:-0}
       - --cpu-threads
       - ${WHISPER_CPU_THREADS:-4}
+      # Speech engine. faster-whisper is Whisper; sherpa with WHISPER_MODEL=auto
+      # is NVIDIA Parakeet TDT 0.6B v3: 98 ms instead of 315 ms (Whisper base
+      # int8) on the Mac on 2026-10-21, with the same 18 of 21 test phrases. It
+      # takes no initial prompt and finds the language itself.
+      - --stt-library
+      - ${WHISPER_STT_LIBRARY:-faster-whisper}
     volumes:
       - ./models/whisper:/data
     ports:
