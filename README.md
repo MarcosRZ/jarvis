@@ -414,13 +414,13 @@ Native build requirements:
 
 The voice services run in Docker Desktop (WSL 2), as on the Mac. The client runs as `voice-client.exe`, not in Docker: a Linux container on Windows has no direct access to the Windows microphone and speaker. The client on Windows is not tested with a real microphone yet; test it step by step (below).
 
-**On the Mac:** `make windows` builds `client/bin/voice-client.exe` in a `golang:1.27.2-bookworm` container with MinGW-w64. The file needs only `KERNEL32.dll` and `msvcrt.dll`; miniaudio loads WASAPI at run time.
+**The .exe.** GitHub Actions builds it (`.github/workflows/build.yml`, see "CI and releases"); `run.ps1 -Update` downloads it from the latest release. On the Mac, `make windows` builds the same file in a `golang:1.27.2-bookworm` container with MinGW-w64. The file needs only `KERNEL32.dll` and `msvcrt.dll`; miniaudio loads WASAPI at run time.
 
 **On the Windows PC, once:**
 
 1. Docker Desktop with the WSL 2 engine, and "Start Docker Desktop when you sign in" on.
 2. `git clone` this repository. `.gitattributes` keeps LF line endings, also on Windows.
-3. Copy `client/bin/voice-client.exe` from the Mac. Create `client/.env.prod` from `client/.env.prod.example` (better with a new Home Assistant token for this PC). Optionally copy `server/models/` (about 1 GB) to skip the first download.
+3. Create `client/.env.prod` from `client/.env.prod.example` (better with a new Home Assistant token for this PC), then run `.\scripts\run.ps1 -Update -NoServices version` to download `client/bin/voice-client.exe`. Optionally copy `server/models/` (about 1 GB) to skip the first download.
 4. Settings > Privacy & security > Microphone: turn on "Let desktop apps access your microphone".
 5. Allow local scripts once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
@@ -436,7 +436,16 @@ The voice services run in Docker Desktop (WSL 2), as on the Mac. The client runs
 
 **Start at log-on.** `.\scripts\install-autostart.ps1` registers the scheduled task "Jarvis voice assistant": at log-on it runs `run.ps1 -KeepRunning` in a hidden window and starts the client again 5 s after it stops. The window is hidden, so read the log over the network (see "Log web page"). A Windows service would have no access to the microphone, so it is a task in your session; turn on the automatic log-on of Windows. `-Uninstall` removes the task.
 
-**Update:** `git pull`, copy a new `voice-client.exe` when the Go code changed, and restart the task (or log off and on).
+**Update:** stop the assistant, `git pull`, then `.\scripts\run.ps1 -Update`. `-Update` downloads `voice-client.exe` and its SHA-256 from the latest release of the `origin` repository, checks the hash, and replaces the file only when it matches; a running assistant keeps the old file locked, so stop it first. Then restart the task (or log off and on).
+
+### CI and releases
+
+`.github/workflows/build.yml` runs on GitHub Actions, with the actions pinned by commit:
+
+- every push to `main` and every pull request: `make lint`, `make test`, and `voice-client.exe` built with MinGW on Ubuntu, kept 30 days as the workflow artifact `voice-client-windows` (download it from the run page);
+- a tag `v*`, for example `git tag v0.2.0 && git push origin v0.2.0`: the same, and a GitHub release with `voice-client.exe` and `voice-client.exe.sha256`. `voice-client version` prints the tag.
+
+The repository is public, so `run.ps1 -Update` downloads the release without a login, from `https://github.com/<owner>/<repo>/releases/latest/download/voice-client.exe`.
 
 ### Log web page
 

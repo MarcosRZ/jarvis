@@ -13,6 +13,7 @@ from the env file.
 .\scripts\run.ps1 devices              # list microphones and speakers
 .\scripts\run.ps1 wake-test            # any voice-client command and its flags
 .\scripts\run.ps1 -KeepRunning          # for autostart
+.\scripts\run.ps1 -Update               # download the latest voice-client.exe, then run
 #>
 # No positional parameters: a bare word such as "devices" is a voice-client
 # command, not the value of -Env.
@@ -25,6 +26,8 @@ param(
     [switch]$KeepRunning,
     # Do not start the Docker voice services.
     [switch]$NoServices,
+    # Download voice-client.exe from the latest GitHub release first.
+    [switch]$Update,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$Arguments
 )
@@ -41,8 +44,49 @@ if (-not (Test-Path (Join-Path $root 'client'))) {
 Set-Location $root
 
 $exe = Join-Path $root 'client\bin\voice-client.exe'
+
+# Downloads voice-client.exe and its SHA-256 from the latest release of the
+# repository of "git remote origin", checks it, and replaces the old file.
+function Update-Client {
+    $remote = git -C $root remote get-url origin 2>$null
+    if ($remote -notmatch 'github\.com[:/](?<repo>[^/]+/[^/]+?)(\.git)?$') {
+        throw "the git remote ""$remote"" is not a GitHub repository; download voice-client.exe from its releases page"
+    }
+    $base = "https://github.com/$($Matches.repo)/releases/latest/download"
+    # Windows PowerShell 5.1 may default to TLS 1.0, which GitHub refuses, and
+    # its progress bar makes downloads very slow.
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $ProgressPreference = 'SilentlyContinue'
+    New-Item -ItemType Directory -Force (Split-Path -Parent $exe) | Out-Null
+    $download = "$exe.download"
+    $sumFile = "$exe.sha256"
+    Write-Host "downloading $base/voice-client.exe"
+    try {
+        Invoke-WebRequest "$base/voice-client.exe" -OutFile $download -UseBasicParsing -ErrorAction Stop
+        Invoke-WebRequest "$base/voice-client.exe.sha256" -OutFile $sumFile -UseBasicParsing -ErrorAction Stop
+    } catch {
+        Remove-Item -ErrorAction SilentlyContinue $download
+        throw "download failed: $_"
+    }
+    $want = ((Get-Content $sumFile -Raw).Trim() -split '\s+')[0]
+    $got = (Get-FileHash $download -Algorithm SHA256).Hash
+    Remove-Item $sumFile
+    if ($got -ne $want) {
+        Remove-Item $download
+        throw "the downloaded voice-client.exe has SHA-256 $got, but the release says $want; nothing was replaced"
+    }
+    try {
+        Move-Item -Force $download $exe -ErrorAction Stop
+    } catch {
+        Remove-Item -ErrorAction SilentlyContinue $download
+        throw "cannot replace $exe; stop the assistant first (Ctrl+C, or Stop-ScheduledTask -TaskName 'Jarvis voice assistant')"
+    }
+    Write-Host "voice-client.exe updated: $(& $exe version)"
+}
+
+if ($Update) { Update-Client }
 if (-not (Test-Path $exe)) {
-    throw "$exe is missing; build it on the Mac with ""make windows"" and copy it here"
+    throw "$exe is missing; run .\scripts\run.ps1 -Update to download it"
 }
 $envFile = Join-Path $root "client\.env.$Environment"
 if (-not (Test-Path $envFile)) {
