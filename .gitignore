@@ -7,3 +7,4 @@ client/bin/
 client/.env.prod
 .claude/settings.local.json
 logs/
+.DS_Store

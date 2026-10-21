@@ -61,6 +61,18 @@ services:
       # 2026-10-20: "¿Qué hora es?" correct in 5 of 5 runs, without it 1 of 5.
       - --initial-prompt
       - ${WHISPER_INITIAL_PROMPT:-¿Qué hora es? Repite lo que he dicho. Cancela. ¿Qué puedes hacer?}
+      # Speed. The defaults are those of the image: the model's own type
+      # (float16, computed as float32 on CPU), automatic beam size, 4 threads.
+      # Measured on 2026-10-21 (Mac, base, 15 transcriptions each): int8 took
+      # 276 ms instead of 482 ms with the same results; beam size 1 gave no
+      # more speed and one wrong command. On a slow CPU: WHISPER_COMPUTE_TYPE=int8,
+      # and WHISPER_CPU_THREADS = the number of CPU cores.
+      - --compute-type
+      - ${WHISPER_COMPUTE_TYPE:-default}
+      - --beam-size
+      - ${WHISPER_BEAM_SIZE:-0}
+      - --cpu-threads
+      - ${WHISPER_CPU_THREADS:-4}
     volumes:
       - ./models/whisper:/data
     ports:

@@ -222,6 +222,8 @@ Short commands from your own voice can give other results. To use `small`, set `
 
 `make integration` sends the sentence and the four commands through `audio.Record` and Whisper. The sentence must contain "cocina". The commands are logged with their times, and fail only when the text is empty.
 
+**Whisper speed.** `WHISPER_COMPUTE_TYPE`, `WHISPER_BEAM_SIZE` and `WHISPER_CPU_THREADS` in `server/.env` set `--compute-type`, `--beam-size` and `--cpu-threads`. The defaults keep the image behavior (`default`, `0`, `4`): the `base` model is float16, which Whisper computes as float32 on a CPU. Measured on 2026-10-21 on the Mac, 15 transcriptions each: `int8` took 276 ms on average instead of 482 ms, with the same text for the commands. `--beam-size 1` was not faster (456 ms with float32) and gave "¡Tempe, Céla!" for "Cancela." once. On a slow CPU, set `WHISPER_COMPUTE_TYPE=int8` and `WHISPER_CPU_THREADS` to the number of cores, then run `make services-up`.
+
 **Initial prompt.** Whisper takes a text that steers it toward expected words (`--initial-prompt`, set with `WHISPER_INITIAL_PROMPT` in `server/.env`). The default is the command list: `¿Qué hora es? Repite lo que he dicho. Cancela. ¿Qué puedes hacer?`. Measured on 2026-10-20 with `base`: in the end-to-end test, "¿Qué hora es?" was correct in 5 of 5 runs with the prompt and in 1 of 5 without it ("¿Qué orais?"). All five STT samples were exact with the prompt, also the long sentence that is not in it. The prompt adds about 40 ms. When Phase 9 adds commands, add their phrases to the prompt. To turn the prompt off, set `WHISPER_INITIAL_PROMPT=` (empty) and run `make services-up`.
 
 ### Speech output

@@ -64,9 +64,9 @@ func (b *Backend) OpenCapture(label string, format Format, buffer time.Duration)
 	if err != nil {
 		return nil, err
 	}
-	device, err := findDevice(devices.Inputs, label)
+	device, err := findDevice(devices.Inputs, label, "input")
 	if err != nil {
-		return nil, fmt.Errorf("input %w", err)
+		return nil, err
 	}
 	c := &Capture{stream: stream{ring: NewRing(format.BytesFor(buffer), format.FrameSize()), format: format}}
 	config := malgo.DefaultDeviceConfig(malgo.Capture)
@@ -112,9 +112,9 @@ func (b *Backend) OpenPlayback(label string, format Format, buffer time.Duration
 	if err != nil {
 		return nil, err
 	}
-	device, err := findDevice(devices.Outputs, label)
+	device, err := findDevice(devices.Outputs, label, "output")
 	if err != nil {
-		return nil, fmt.Errorf("output %w", err)
+		return nil, err
 	}
 	p := &Playback{stream: stream{ring: NewRing(format.BytesFor(buffer), format.FrameSize()), format: format}}
 	config := malgo.DefaultDeviceConfig(malgo.Playback)
@@ -158,13 +158,14 @@ func (s *stream) start(b *Backend, config malgo.DeviceConfig, data malgo.DataPro
 	device, err := malgo.InitDevice(b.ctx.Context, config, malgo.DeviceCallbacks{Data: data, Stop: s.onStop})
 	if err != nil {
 		s.pinner.Unpin()
-		return fmt.Errorf("open %s: %w", name, err)
+		return b.log.explain(fmt.Errorf("open %s: %w", name, err))
 	}
 	s.device = device
 	if err := device.Start(); err != nil {
 		s.Close()
-		return fmt.Errorf("start %s: %w", name, err)
+		return b.log.explain(fmt.Errorf("start %s: %w", name, err))
 	}
+	b.log.forget()
 	return nil
 }
 

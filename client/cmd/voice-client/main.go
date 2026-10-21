@@ -190,7 +190,7 @@ func tokenState(token string) string {
 }
 
 func listDevices(stdout, stderr io.Writer) int {
-	backend, err := audio.Open()
+	backend, err := audio.Open(nil)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return exitError

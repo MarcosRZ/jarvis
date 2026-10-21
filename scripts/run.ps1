@@ -14,6 +14,9 @@ from the env file.
 .\scripts\run.ps1 wake-test            # any voice-client command and its flags
 .\scripts\run.ps1 -KeepRunning -LogFile logs\voice-client.log   # for autostart
 #>
+# No positional parameters: a bare word such as "devices" is a voice-client
+# command, not the value of -Env.
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [Alias('Env')]
     [ValidateSet('dev', 'prod')]
@@ -33,7 +36,12 @@ param(
 $ErrorActionPreference = 'Continue'
 # voice-client writes UTF-8; without this, Spanish accents break in the log file.
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$root = Split-Path -Parent $PSScriptRoot
+# $PSScriptRoot is empty when the script does not run as a file (for example,
+# pasted into the console); then the repository is the current folder.
+$root = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { (Get-Location).Path }
+if (-not (Test-Path (Join-Path $root 'client'))) {
+    throw "$root is not the jarvis folder; run .\scripts\run.ps1 from the jarvis folder"
+}
 Set-Location $root
 
 $exe = Join-Path $root 'client\bin\voice-client.exe'
@@ -79,11 +87,15 @@ foreach ($line in Get-Content $envFile) {
     if ($value.Length -ge 2 -and $value[0] -eq $value[-1] -and '"', "'" -contains $value[0]) {
         $value = $value.Substring(1, $value.Length - 2)
     }
-    Set-Item "Env:$($name.Trim())" $value
+    # An empty value removes the variable, as "make run" treats it as not set.
+    [Environment]::SetEnvironmentVariable($name.Trim(), $value, 'Process')
 }
 
 if (-not $Arguments) { $Arguments = @('run') }
-if ($LogFile) { New-Item -ItemType Directory -Force (Split-Path -Parent $LogFile) | Out-Null }
+if ($LogFile) {
+    if (-not [System.IO.Path]::IsPathRooted($LogFile)) { $LogFile = Join-Path $root $LogFile }
+    New-Item -ItemType Directory -Force (Split-Path -Parent $LogFile) | Out-Null
+}
 
 while ($true) {
     if ($LogFile) {

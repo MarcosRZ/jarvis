@@ -27,7 +27,7 @@ const (
 // openMicrophone opens the backend and starts capture in the speech format.
 // Close the capture, then the backend.
 func openMicrophone(device string, logger *slog.Logger) (*audio.Backend, *audio.Capture, error) {
-	backend, err := audio.Open()
+	backend, err := audio.Open(logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -87,7 +87,7 @@ func micTest(ctx context.Context, cfg config.Config, duration time.Duration, std
 }
 
 func loopback(ctx context.Context, cfg config.Config, duration time.Duration, logger *slog.Logger) int {
-	backend, err := audio.Open()
+	backend, err := audio.Open(logger)
 	if err != nil {
 		logger.Error("audio", "error", err)
 		return exitError

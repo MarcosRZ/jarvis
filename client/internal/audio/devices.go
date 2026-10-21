@@ -4,10 +4,15 @@ package audio
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/gen2brain/malgo"
 )
+
+// keptMessages is how many recent miniaudio messages a failed open reports.
+const keptMessages = 5
 
 // Device is an audio device. Label is the device name, with a number suffix
 // when more devices of the same kind have the same name.
@@ -25,14 +30,59 @@ type Devices struct {
 // Backend is an open connection to the system audio API.
 type Backend struct {
 	ctx *malgo.AllocatedContext
+	log *messages
 }
 
-func Open() (*Backend, error) {
-	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, nil)
-	if err != nil {
-		return nil, fmt.Errorf("open audio backend: %w", err)
+// messages keeps the last miniaudio messages, which explain its errors: a
+// malgo error alone is often only "unknown error".
+type messages struct {
+	mu     sync.Mutex
+	recent []string
+}
+
+func (m *messages) add(msg string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.recent = append(m.recent, msg)
+	if len(m.recent) > keptMessages {
+		m.recent = m.recent[1:]
 	}
-	return &Backend{ctx: ctx}, nil
+}
+
+// forget drops the messages of an operation that worked.
+func (m *messages) forget() {
+	m.mu.Lock()
+	m.recent = nil
+	m.mu.Unlock()
+}
+
+// explain adds the recent messages to err and forgets them.
+func (m *messages) explain(err error) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.recent) == 0 {
+		return err
+	}
+	err = fmt.Errorf("%w (miniaudio: %s)", err, strings.Join(m.recent, "; "))
+	m.recent = nil
+	return err
+}
+
+// Open connects to the system audio API. logger, if not nil, gets each
+// miniaudio message at debug level.
+func Open(logger *slog.Logger) (*Backend, error) {
+	log := &messages{}
+	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, func(msg string) {
+		msg = strings.TrimSpace(msg)
+		log.add(msg)
+		if logger != nil {
+			logger.Debug("miniaudio", "message", msg)
+		}
+	})
+	if err != nil {
+		return nil, log.explain(fmt.Errorf("open audio backend: %w", err))
+	}
+	return &Backend{ctx: ctx, log: log}, nil
 }
 
 // Close releases the backend. Close all streams first.
@@ -44,11 +94,11 @@ func (b *Backend) Close() {
 func (b *Backend) Devices() (Devices, error) {
 	inputs, err := b.devices(malgo.Capture)
 	if err != nil {
-		return Devices{}, fmt.Errorf("list input devices: %w", err)
+		return Devices{}, b.log.explain(fmt.Errorf("list input devices: %w", err))
 	}
 	outputs, err := b.devices(malgo.Playback)
 	if err != nil {
-		return Devices{}, fmt.Errorf("list output devices: %w", err)
+		return Devices{}, b.log.explain(fmt.Errorf("list output devices: %w", err))
 	}
 	return Devices{Inputs: inputs, Outputs: outputs}, nil
 }
@@ -83,7 +133,12 @@ func labelNames(names []string) []string {
 }
 
 // findDevice returns the device with label, or nil for the system default when label is empty.
-func findDevice(devices []Device, label string) (*Device, error) {
+// findDevice returns nil for the system default (label ""). kind is "input"
+// or "output", for the error.
+func findDevice(devices []Device, label, kind string) (*Device, error) {
+	if len(devices) == 0 {
+		return nil, fmt.Errorf("no %s device found: the system lists none; connect one and check the sound settings", kind)
+	}
 	if label == "" {
 		return nil, nil
 	}
@@ -94,5 +149,5 @@ func findDevice(devices []Device, label string) (*Device, error) {
 		}
 		quoted[i] = fmt.Sprintf("%q", devices[i].Label)
 	}
-	return nil, fmt.Errorf("device %q not found; available: %s", label, strings.Join(quoted, ", "))
+	return nil, fmt.Errorf("%s device %q not found; available: %s", kind, label, strings.Join(quoted, ", "))
 }

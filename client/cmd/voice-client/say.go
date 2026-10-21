@@ -40,7 +40,7 @@ func (t texts) validate() error {
 
 // say speaks each text in order through Piper and the output device.
 func say(ctx context.Context, cfg config.Config, lines texts, stdout io.Writer, logger *slog.Logger) int {
-	backend, err := audio.Open()
+	backend, err := audio.Open(logger)
 	if err != nil {
 		logger.Error("audio", "error", err)
 		return exitError
