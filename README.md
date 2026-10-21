@@ -85,6 +85,7 @@ A flag wins over an environment variable. An environment variable wins over the 
 | (no flag) | `VOICE_HA_TOKEN` | empty | a Home Assistant long-lived access token; necessary with `--ha-url` |
 | `--log-level` | `VOICE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--log-transcripts` | `VOICE_LOG_TRANSCRIPTS` | `false` | `true` logs what Whisper heard at info level (`msg=heard text=...`); `false` logs it only at `debug` |
+| `--log-http-addr` | `VOICE_LOG_HTTP_ADDR` | empty (off) | `host:port` for the log web page of `run`, for example `0.0.0.0:8080`; see "Log web page" |
 | `--connect-timeout` | `VOICE_CONNECT_TIMEOUT` | `3s` | Go duration, greater than 0 |
 | `--operation-timeout` | `VOICE_OPERATION_TIMEOUT` | `30s` | Go duration, greater than 0; limit for one read or write on a service connection |
 | `--config` | `VOICE_CONFIG` | empty (defaults) | path of a YAML configuration file; see "Configuration file" |
@@ -433,9 +434,21 @@ The voice services run in Docker Desktop (WSL 2), as on the Mac. The client runs
 .\scripts\run.ps1              # the assistant
 ```
 
-**Start at log-on.** `.\scripts\install-autostart.ps1` registers the scheduled task "Jarvis voice assistant": at log-on it runs `run.ps1 -KeepRunning` in a hidden window, starts the client again 5 s after it stops, and appends the log to `logs/voice-client.log` (git-ignored). A Windows service would have no access to the microphone, so it is a task in your session; turn on the automatic log-on of Windows. `-Uninstall` removes the task.
+**Start at log-on.** `.\scripts\install-autostart.ps1` registers the scheduled task "Jarvis voice assistant": at log-on it runs `run.ps1 -KeepRunning` in a hidden window and starts the client again 5 s after it stops. The window is hidden, so read the log over the network (see "Log web page"). A Windows service would have no access to the microphone, so it is a task in your session; turn on the automatic log-on of Windows. `-Uninstall` removes the task.
 
 **Update:** `git pull`, copy a new `voice-client.exe` when the Go code changed, and restart the task (or log off and on).
+
+### Log web page
+
+With `--log-http-addr` (`VOICE_LOG_HTTP_ADDR`), `run` keeps its last 2000 log lines (about 300 KB) in memory and serves them as plain text, read only. Nothing is written to disk, and the lines are gone when the client stops. The console gets the full log as before. Other commands do not serve their log, so `config-check` can run next to a running assistant.
+
+```sh
+curl http://<pc>:8080/            # all kept lines
+curl http://<pc>:8080/?n=50       # the last 50
+curl -i http://<pc>:8080/?after=120   # the lines after line 120; X-Log-Last is the number of the last line
+```
+
+`127.0.0.1:8080` serves the page only on the same computer; `0.0.0.0:8080` serves it in the local network. The page has no login and shows the transcripts when `--log-transcripts` is on, so use it only in a trusted home network. On Windows, the firewall asks once whether `voice-client.exe` may accept connections: allow it for private networks. Run `.\scripts\run.ps1` once in a window for that question; the autostart task is hidden. A busy port stops `run` at start with `log web page: listen tcp ...: address already in use`.
 
 ### Microphone permission on macOS
 

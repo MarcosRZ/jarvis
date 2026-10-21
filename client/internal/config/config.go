@@ -41,6 +41,7 @@ const (
 	EnvOperationTimeout = "VOICE_OPERATION_TIMEOUT"
 	EnvConfig           = "VOICE_CONFIG"
 	EnvLogTranscripts   = "VOICE_LOG_TRANSCRIPTS"
+	EnvLogHTTPAddr      = "VOICE_LOG_HTTP_ADDR"
 
 	flagWakeWordAddr       = "wakeword-addr"
 	flagSTTAddr            = "stt-addr"
@@ -62,6 +63,7 @@ const (
 	flagOperationTimeout   = "operation-timeout"
 	flagConfig             = "config"
 	flagLogTranscripts     = "log-transcripts"
+	flagLogHTTPAddr        = "log-http-addr"
 
 	defaultWakeWordAddr       = "127.0.0.1:10400"
 	defaultSTTAddr            = "127.0.0.1:10300"
@@ -109,7 +111,9 @@ type Config struct {
 	HAToken  string
 	LogLevel slog.Level
 	// LogTranscripts logs the recognized text at info level.
-	LogTranscripts   bool
+	LogTranscripts bool
+	// LogHTTPAddr is where the last log lines are served, empty for off.
+	LogHTTPAddr      string
 	ConnectTimeout   time.Duration
 	OperationTimeout time.Duration
 	// ConfigFile is the YAML file, empty for none.
@@ -146,6 +150,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		ConnectTimeout:     defaultConnectTimeout,
 		OperationTimeout:   defaultOperationTimeout,
 		ConfigFile:         getenv(EnvConfig),
+		LogHTTPAddr:        getenv(EnvLogHTTPAddr),
 		BeepEnabled:        true,
 		Beep:               audio.DefaultBeep,
 		Matching:           commands.DefaultMatching,
@@ -210,6 +215,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.StringVar(&cfg.HAURL, flagHAURL, cfg.HAURL, usage("Home Assistant URL, for example http://127.0.0.1:8123; empty for no device control; the token is "+EnvHAToken, EnvHAURL))
 	fs.TextVar(&cfg.LogLevel, flagLogLevel, cfg.LogLevel, usage("debug, info, warn or error", EnvLogLevel))
 	fs.BoolVar(&cfg.LogTranscripts, flagLogTranscripts, cfg.LogTranscripts, usage("log what Whisper heard at info level; off, only at debug level", EnvLogTranscripts))
+	fs.StringVar(&cfg.LogHTTPAddr, flagLogHTTPAddr, cfg.LogHTTPAddr, usage("host:port of a read-only web page with the last log lines of run, kept only in memory; 0.0.0.0:8080 for the local network; empty for off", EnvLogHTTPAddr))
 	fs.DurationVar(&cfg.ConnectTimeout, flagConnectTimeout, cfg.ConnectTimeout, usage("maximum time to connect to a voice service", EnvConnectTimeout))
 	fs.DurationVar(&cfg.OperationTimeout, flagOperationTimeout, cfg.OperationTimeout, usage("maximum time for one read or write on a voice service connection", EnvOperationTimeout))
 	fs.StringVar(&cfg.ConfigFile, flagConfig, cfg.ConfigFile, usage("YAML configuration file, for example client/config.yaml; empty for the defaults", EnvConfig))
@@ -225,6 +231,9 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		validateAddr(flagSTTAddr, EnvSTTAddr, cfg.STTAddr, defaultSTTAddr),
 		validateAddr(flagTTSAddr, EnvTTSAddr, cfg.TTSAddr, defaultTTSAddr),
 	)
+	if cfg.LogHTTPAddr != "" {
+		errs = append(errs, validateAddr(flagLogHTTPAddr, EnvLogHTTPAddr, cfg.LogHTTPAddr, "0.0.0.0:8080"))
+	}
 	if cfg.WakeWordModel == "" {
 		errs = append(errs, fmt.Errorf("--%s (%s) is empty: use a model name, for example %s", flagWakeWordModel, EnvWakeWordModel, defaultWakeWordModel))
 	}

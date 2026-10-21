@@ -101,7 +101,22 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return exitConfig
 	}
 
-	logger := logging.New(stderr, cfg.LogLevel)
+	// Only the assistant serves its log: the other commands print to the
+	// console, and must not take the port of a running assistant.
+	serveLog := command == commandRun && cfg.LogHTTPAddr != ""
+	logOut := stderr
+	if serveLog {
+		ring := logging.NewRing(logLines)
+		if err := logging.Serve(ctx, cfg.LogHTTPAddr, ring); err != nil {
+			fmt.Fprintln(stderr, err)
+			return exitError
+		}
+		logOut = io.MultiWriter(stderr, ring)
+	}
+	logger := logging.New(logOut, cfg.LogLevel)
+	if serveLog {
+		logger.Info("log web page", "addr", cfg.LogHTTPAddr, "lines", logLines)
+	}
 	switch command {
 	case commandConfigCheck:
 		printConfig(stdout, cfg)
@@ -119,6 +134,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	}
 	return runAssistant(ctx, cfg, logger)
 }
+
+// logLines is how many log lines the log web page keeps, about 300 KB.
+const logLines = 2000
 
 func printUsage(w io.Writer) {
 	fmt.Fprintf(w, `usage: voice-client <command> [flags]
@@ -169,6 +187,7 @@ func printConfig(w io.Writer, cfg config.Config) {
 		{"ha-token", tokenState(cfg.HAToken)},
 		{"log-level", cfg.LogLevel},
 		{"log-transcripts", cfg.LogTranscripts},
+		{"log-http-addr", fmt.Sprintf("%q", cfg.LogHTTPAddr)},
 		{"connect-timeout", cfg.ConnectTimeout},
 		{"operation-timeout", cfg.OperationTimeout},
 		{"config", fmt.Sprintf("%q", cfg.ConfigFile)},

@@ -12,7 +12,7 @@ from the env file.
 .\scripts\run.ps1                      # the assistant with client\.env.prod
 .\scripts\run.ps1 devices              # list microphones and speakers
 .\scripts\run.ps1 wake-test            # any voice-client command and its flags
-.\scripts\run.ps1 -KeepRunning -LogFile logs\voice-client.log   # for autostart
+.\scripts\run.ps1 -KeepRunning          # for autostart
 #>
 # No positional parameters: a bare word such as "devices" is a voice-client
 # command, not the value of -Env.
@@ -23,8 +23,6 @@ param(
     [string]$Environment = 'prod',
     # Start the client again 5 s after it stops (for autostart).
     [switch]$KeepRunning,
-    # Append the client log to this file instead of the console.
-    [string]$LogFile,
     # Do not start the Docker voice services.
     [switch]$NoServices,
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -34,8 +32,6 @@ param(
 # Not 'Stop': Windows PowerShell 5.1 then turns each stderr line of a program
 # into an error, and voice-client logs to stderr. Failures throw explicitly.
 $ErrorActionPreference = 'Continue'
-# voice-client writes UTF-8; without this, Spanish accents break in the log file.
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 # $PSScriptRoot is empty when the script does not run as a file (for example,
 # pasted into the console); then the repository is the current folder.
 $root = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { (Get-Location).Path }
@@ -92,17 +88,9 @@ foreach ($line in Get-Content $envFile) {
 }
 
 if (-not $Arguments) { $Arguments = @('run') }
-if ($LogFile) {
-    if (-not [System.IO.Path]::IsPathRooted($LogFile)) { $LogFile = Join-Path $root $LogFile }
-    New-Item -ItemType Directory -Force (Split-Path -Parent $LogFile) | Out-Null
-}
 
 while ($true) {
-    if ($LogFile) {
-        & $exe @Arguments 2>&1 | ForEach-Object { "$_" } | Add-Content -Path $LogFile -Encoding UTF8
-    } else {
-        & $exe @Arguments
-    }
+    & $exe @Arguments
     $code = $LASTEXITCODE
     if (-not $KeepRunning) { exit $code }
     Write-Host "voice-client stopped with code $code; starting again in 5 s"

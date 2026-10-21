@@ -87,6 +87,7 @@ func TestLoadPrecedence(t *testing.T) {
 		EnvConnectTimeout:     "5s",
 		EnvOperationTimeout:   "1m",
 		EnvLogTranscripts:     "true",
+		EnvLogHTTPAddr:        "0.0.0.0:8080",
 	})
 	args := []string{"--stt-addr", "host.local:4", "--wakeword-cooldown", "0s", "--input-device", "flag mic", "--connect-timeout", "250ms", "--record-max", "12s", "--speech-level", "-35", "--tts-speaker", "F"}
 
@@ -113,6 +114,7 @@ func TestLoadPrecedence(t *testing.T) {
 		ConnectTimeout:     250 * time.Millisecond,
 		OperationTimeout:   time.Minute,
 		LogTranscripts:     true,
+		LogHTTPAddr:        "0.0.0.0:8080",
 		BeepEnabled:        true,
 		Beep:               audio.DefaultBeep,
 		Matching:           commands.DefaultMatching,
@@ -139,6 +141,7 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"cooldown negative", []string{"--wakeword-cooldown", "-1s"}, nil, []string{"--wakeword-cooldown", EnvWakeWordCooldown}},
 		{"cooldown env not a duration", nil, map[string]string{EnvWakeWordCooldown: "soon"}, []string{EnvWakeWordCooldown, "soon"}},
 		{"log level env unknown", nil, map[string]string{EnvLogLevel: "loud"}, []string{EnvLogLevel, "loud"}},
+		{"log web page address", []string{"--log-http-addr", "8080"}, nil, []string{"--log-http-addr", "use host:port"}},
 		{"log transcripts env not a bool", nil, map[string]string{EnvLogTranscripts: "sí"}, []string{EnvLogTranscripts, "use true or false"}},
 		{"log level flag unknown", []string{"--log-level", "loud"}, nil, []string{"log-level"}},
 		{"connect timeout zero", []string{"--connect-timeout", "0s"}, nil, []string{"--connect-timeout", EnvConnectTimeout}},
