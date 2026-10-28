@@ -104,8 +104,26 @@ function Wait-Docker {
     }
 }
 
+function Get-LLMModel {
+    $model = Join-Path $root 'server\models\llm\qwen2.5-0.5b-instruct-q4_k_m.gguf'
+    if (Test-Path $model) { return }
+    Write-Host 'downloading the language model (about 470 MB)...'
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $ProgressPreference = 'SilentlyContinue'
+    New-Item -ItemType Directory -Force (Split-Path -Parent $model) | Out-Null
+    $download = "$model.download"
+    try {
+        Invoke-WebRequest 'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf' -OutFile $download -UseBasicParsing -ErrorAction Stop
+        Move-Item -Force $download $model
+    } catch {
+        Remove-Item -ErrorAction SilentlyContinue $download
+        throw "cannot download the language model: $_"
+    }
+}
+
 if (-not $NoServices) {
     Wait-Docker
+    Get-LLMModel
     Push-Location (Join-Path $root 'server')
     try {
         docker compose up -d --wait

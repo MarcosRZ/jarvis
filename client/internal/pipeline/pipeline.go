@@ -141,11 +141,16 @@ func (p *Pipeline) reply(ctx context.Context, text string, since time.Time) erro
 		p.logger.Error("speech failed", "error", err)
 		return nil
 	}
-	p.logger.Info("spoke",
+	attrs := []any{
 		"response_latency", (untilSpeech + timing.Synthesis).Round(time.Millisecond),
 		"synthesis", timing.Synthesis.Round(time.Millisecond),
-		"audio", timing.Audio.Round(10*time.Millisecond),
-		"playback", timing.Playback.Round(time.Millisecond))
+		"audio", timing.Audio.Round(10 * time.Millisecond),
+		"playback", timing.Playback.Round(time.Millisecond),
+	}
+	if p.LogTranscripts {
+		attrs = append(attrs, "text", text)
+	}
+	p.logger.Info("spoke", attrs...)
 	return nil
 }
 

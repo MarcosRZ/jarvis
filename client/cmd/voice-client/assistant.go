@@ -11,6 +11,8 @@ import (
 	"jarvis/client/internal/commands"
 	"jarvis/client/internal/config"
 	"jarvis/client/internal/homeassistant"
+	"jarvis/client/internal/learning"
+	"jarvis/client/internal/llm"
 	"jarvis/client/internal/pipeline"
 	"jarvis/client/internal/stt"
 	"jarvis/client/internal/wakeword"
@@ -44,12 +46,27 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	if err != nil {
 		return stopCode(err, logger)
 	}
+	if cfg.LearningFile != "" {
+		store, err := learning.Open(cfg.LearningFile)
+		if err != nil {
+			logger.Warn("learning disabled", "file", cfg.LearningFile, "error", err)
+		} else {
+			handler.UseLearning(store)
+			logger.Info("learning", "file", cfg.LearningFile, "entries", store.Len())
+		}
+	}
 	// A guess has words of the command, which are private like the transcript.
 	guessLevel := slog.LevelDebug
 	if cfg.LogTranscripts {
 		guessLevel = slog.LevelInfo
 	}
 	handler.UseMatching(cfg.Matching, logger, guessLevel)
+	handler.UseRoom(cfg.Room)
+	if cfg.LLMMode != commands.InterpretOff {
+		interpreter := llm.New(llm.Config{URL: cfg.LLMURL, Timeout: cfg.LLMTimeout, Room: cfg.Room})
+		handler.UseInterpreter(interpreter, cfg.LLMMode)
+		logger.Info("language model", "url", cfg.LLMURL, "mode", cfg.LLMMode, "room", cfg.Room)
+	}
 	limits := recordLimits(cfg)
 	var acknowledge func(context.Context) error
 	if cfg.BeepEnabled {

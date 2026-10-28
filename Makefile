@@ -9,12 +9,14 @@ HA_URL := http://127.0.0.1:8123
 HA_TOKEN_FILE := $(CURDIR)/$(HA_DIR)/dev-token
 HA_PASSWORD_FILE := $(CURDIR)/$(HA_DIR)/dev-password
 HA_COMPOSE := docker compose --profile homeassistant
+LLM_MODEL := $(SERVER_DIR)/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
+LLM_MODEL_URL := https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
 
 # make run reads the client settings from client/.env.$(ENV): dev or prod.
 ENV := dev
 ENV_FILE := $(CLIENT_DIR)/.env.$(ENV)
 
-.PHONY: build test integration lint clean services-up services-down services-status services-logs ha-up ha-down ha-reset run windows
+.PHONY: build test integration lint clean services-up services-down services-status services-logs llm-model ha-up ha-down ha-reset run windows
 
 build:
 	cd $(CLIENT_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o bin/$(BINARY) ./cmd/voice-client
@@ -35,7 +37,8 @@ test:
 # The Home Assistant tests run when the development Home Assistant is set up (make ha-up).
 integration:
 	@if [ -f $(HA_TOKEN_FILE) ]; then export VOICE_HA_URL=$(HA_URL) VOICE_HA_TOKEN="$$(cat $(HA_TOKEN_FILE))"; fi; \
-	cd $(CLIENT_DIR) && go test -tags integration -count=1 -run Integration ./...
+	VOICE_LLM_URL="$${VOICE_LLM_URL:-http://127.0.0.1:8080}"; export VOICE_LLM_URL; \
+	cd $(CLIENT_DIR) && go test -tags integration -count=1 -p 1 -run Integration ./...
 
 lint:
 	@unformatted="$$(cd $(CLIENT_DIR) && gofmt -l .)"; \
@@ -45,7 +48,15 @@ lint:
 clean:
 	rm -rf $(BIN_DIR)
 
-services-up:
+llm-model:
+	@if [ ! -s $(LLM_MODEL) ]; then \
+		echo "downloading $(notdir $(LLM_MODEL)) (about 470 MB)"; \
+		mkdir -p $(dir $(LLM_MODEL)); \
+		curl -fL --progress-bar -o $(LLM_MODEL).download $(LLM_MODEL_URL); \
+		mv $(LLM_MODEL).download $(LLM_MODEL); \
+	fi
+
+services-up: llm-model
 	cd $(SERVER_DIR) && docker compose up -d --wait
 
 services-down:

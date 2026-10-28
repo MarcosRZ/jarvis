@@ -5,7 +5,8 @@ Say **"Aleksei"**, wait for the beep, and give a command. The assistant answers 
 ```text
 microphone ─▶ voice-client (Go) ──▶ openWakeWord      "Aleksei"          ┐
 speaker   ◀─        │          ──▶ Whisper / Parakeet  speech to text     ├─ Docker
-                    │          ──▶ Piper               text to speech     ┘
+                    │          ──▶ Piper               text to speech     │
+                    │          ──▶ llama.cpp           command fallback   ┘
                     └────────────▶ Home Assistant      lights, switches
 ```
 
@@ -18,10 +19,13 @@ Status: phases 0 to 9 of [`spec.md`](spec.md) are done. It runs every day on a W
 | "¿Qué hora es?" | "Son las 10 y cuarto." |
 | "Enciende la luz del salón" / "Apaga …" | "Hecho." |
 | "¿Qué puedes hacer?" | the commands and your devices |
+| "Hay demasiada luz aquí" | "Hecho." and the light of the room turns off (with `VOICE_ROOM=Salon`) |
 | "Repite lo que he dicho" | "Has dicho: …" |
 | "Cancela" | "Vale, cancelado." |
 
 Devices are the lights and switches that you expose to voice assistants in Home Assistant. A new device works within 30 s, with no restart. Misheard names are corrected by sound ("Enciende el Udelsalom" switches "la luz del salón"). See [docs/commands.md](docs/commands.md).
+
+An optional local language model (`llama.cpp` with Qwen2.5-0.5B-Instruct, in `server/models/llm`) interprets the sentences that the fixed parser does not understand. For a sentence with a power verb and one clear device it may only choose `turn_on`/`turn_off` for that device. For a state such as "hay demasiada luz aquí" it gets every device, infers an action, and runs it at once: the light turns off without a confirmation question. `VOICE_ROOM` tells it which room "aquí" means; if the device names contain the room ("la luz del salón"), that is the device it picks. The model is limited to the exposed lights and switches, but it can still choose the wrong one, so check `msg=reasoned` if a state does something unexpected. Repeated states are learned: an inferred action counts as a success, and "Alexa, mal" within 60 s penalizes the last action so that association is not repeated. Learned sentences skip the model and run from a local JSON file; see [Learning and feedback](docs/commands.md#learning-and-feedback). Fixed commands stay with the parser, and several clauses joined by "y" or "e" run in order. `VOICE_LLM_MODE=fallback` (the default) keeps the fast parser first; `always` sends every single sentence with a clear candidate device to the model; `off` disables it. See [Language model](docs/commands.md#language-model).
 
 ## Install from scratch
 
@@ -48,8 +52,11 @@ The voice services run in Docker; the client runs as `voice-client.exe`, because
    VOICE_CONFIG=client/config.yaml
    VOICE_HA_URL=http://<home-assistant-ip>:8123
    VOICE_HA_TOKEN=<token from step 1>
+   VOICE_LLM_URL=http://127.0.0.1:8080
+   VOICE_LLM_MODE=fallback
+   VOICE_ROOM=Salon
    VOICE_LOG_TRANSCRIPTS=true
-   VOICE_LOG_HTTP_ADDR=0.0.0.0:8080
+   VOICE_LOG_HTTP_ADDR=0.0.0.0:8081
    ```
 4. Create `server\.env` for a fast speech engine on a small CPU (see [docs/speech-recognition.md](docs/speech-recognition.md)):
    ```
@@ -84,7 +91,7 @@ Without a real Home Assistant, `make ha-up` starts a development one with demo l
 | Microphone level / record and play back | `.\scripts\run.ps1 mic-test` / `loopback` | `client/bin/voice-client mic-test` / `loopback` |
 | Test the wake word / speech recognition | `.\scripts\run.ps1 wake-test` / `stt-test` | `client/bin/voice-client wake-test` / `stt-test` |
 | Show the effective settings | `.\scripts\run.ps1 -NoServices config-check` | `client/bin/voice-client config-check` |
-| Read the log from another computer | `curl http://<mini-pc>:8080/?n=50` | |
+| Read the log from another computer | `curl http://<mini-pc>:8081/?n=50` | |
 
 All commands: [docs/cli.md](docs/cli.md). Each request logs its steps and times, and with `VOICE_LOG_TRANSCRIPTS=true` what it understood (`msg=heard`). The log page keeps the last 2000 lines in memory only: [docs/assistant.md](docs/assistant.md#log-web-page).
 

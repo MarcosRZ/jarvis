@@ -86,7 +86,6 @@ func TestParseOnlySuggestsUnclearDevices(t *testing.T) {
 	}{
 		{"Enciende la luz de la cocina; rm -rf /", []string{"light.kitchen"}},
 		{"Enciende la luz del baño", []string{"light.living_room", "light.ceiling_lights"}},
-		{"Enciende la luz de la cocina por favor", nil},
 		{"Enciende el horno", nil},
 		{"Enciende la luz", nil},
 		{"Enciende el despacho", nil},

@@ -110,6 +110,43 @@ services:
       start_period: 120s
       start_interval: 5s
 
+  # Local language model for commands that the fixed parser does not
+  # understand. "make services-up" (or run.ps1) downloads the model on first
+  # start. It is optional: VOICE_LLM_MODE=off in the client disables it.
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:8052c13edd987de8858f8150031e025ac3d66823f09cf3ec8220899c4abce220
+    container_name: voice-assistant-llm
+    init: true
+    command:
+      - --model
+      - /models/${LLM_MODEL:-qwen2.5-0.5b-instruct-q4_k_m.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "${LLM_CTX_SIZE:-2048}"
+      - --threads
+      - "${LLM_THREADS:-4}"
+      - --n-gpu-layers
+      - "0"
+    volumes:
+      - ./models/llm:/models:ro
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${LLM_PORT:-8080}:8080"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -fsS
+        - http://127.0.0.1:8080/health
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+      start_interval: 5s
+
   # Development Home Assistant with demo lights and switches. It starts only
   # with the profile: make ha-up.
   homeassistant:

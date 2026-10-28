@@ -36,9 +36,13 @@ level=INFO msg=state from=SPEAKING to=LISTENING after=1.68s
 
 The assistant stops only for a microphone failure, an unknown wake-word model or speaker, or Ctrl+C. When openWakeWord is down, the detector reconnects (see [wake-word.md](wake-word.md)).
 
+**Physical states.** A sentence about a physical state ("hay demasiada luz aquí") runs an action at once, without a confirmation question. The common light phrases ("no veo nada", "no hay luz", "está muy oscuro", "hay demasiada luz", "me sobra luz") are resolved deterministically for the `VOICE_ROOM` light, even if the language model is off. Other states use the model. The model can only choose the exposed lights and switches, but it can still choose the wrong one; see [commands.md](commands.md#language-model). The info-level `msg=action` log line names the device and action behind "Hecho."
+
+**Learning.** A state action counts as a success unless you say "mal" within 60 seconds. Learned sentences are stored in `VOICE_LEARNING_FILE` (default `client/data/learning.json`) and run without the model, so repeated states become fast. "Mal" makes that association negative and the assistant stops repeating the punished action; a different action replaces it. See [Learning and feedback](commands.md#learning-and-feedback).
+
 **Commands.** See [commands.md](commands.md).
 
-**Privacy.** The command text (`msg=heard`, also when it is empty) is logged only with `--log-transcripts` or at `--log-level debug`. `client/.env.dev` turns it on; it is off by default. Recordings are cleared after the transcription.
+**Privacy.** The command text (`msg=heard`, also when it is empty) is logged only with `--log-transcripts` or at `--log-level debug`. `client/.env.dev` turns it on; it is off by default. Recordings are cleared after the transcription. The learning file stores normalized command sentences on disk with mode 0600 even when transcripts are off; set `VOICE_LEARNING_FILE=off` to turn learning off.
 
 **End-to-end test.** `make integration` runs the pipeline with the real services and the real detector, recorder, Whisper client, command handler and Piper speaker. Only the speaker output is a fake. The input is Piper speech (`es_ES-davefx-medium`) fed at real-time speed, as from a microphone: three times "Aleksei", 1 s of silence and a command ("¿Qué hora es?", "¿Qué puedes hacer?", "Repite lo que he dicho."), each followed by 4 s of silence. Each reply must be correct, and the third must repeat the text of the second. Measured on 2026-10-20: 3 of 3 runs passed, about 21.6 s for the three requests (of which about 17 s is the input itself).
 
@@ -47,9 +51,9 @@ The assistant stops only for a microphone failure, an unknown wake-word model or
 With `--log-http-addr` (`VOICE_LOG_HTTP_ADDR`), `run` keeps its last 2000 log lines (about 300 KB) in memory and serves them as plain text, read only. Nothing is written to disk, and the lines are gone when the client stops. The console gets the full log as before. Other commands do not serve their log, so `config-check` can run next to a running assistant.
 
 ```sh
-curl http://<pc>:8080/            # all kept lines
-curl http://<pc>:8080/?n=50       # the last 50
-curl -i http://<pc>:8080/?after=120   # the lines after line 120; X-Log-Last is the number of the last line
+curl http://<pc>:8081/            # all kept lines
+curl http://<pc>:8081/?n=50       # the last 50
+curl -i http://<pc>:8081/?after=120   # the lines after line 120; X-Log-Last is the number of the last line
 ```
 
-`127.0.0.1:8080` serves the page only on the same computer; `0.0.0.0:8080` serves it in the local network. The page has no login and shows the transcripts when `--log-transcripts` is on, so use it only in a trusted home network. On Windows, the firewall asks once whether `voice-client.exe` may accept connections: allow it for private networks. Run `.\scripts\run.ps1` once in a window for that question; the autostart task is hidden. A busy port stops `run` at start with `log web page: listen tcp ...: address already in use`.
+`127.0.0.1:8081` serves the page only on the same computer; `0.0.0.0:8081` serves it in the local network. Do not use 8080: the local command model listens there. The page has no login and shows the transcripts when `--log-transcripts` is on, so use it only in a trusted home network. On Windows, the firewall asks once whether `voice-client.exe` may accept connections: allow it for private networks. Run `.\scripts\run.ps1` once in a window for that question; the autostart task is hidden. A busy port stops `run` at start with `log web page: listen tcp ...: address already in use`.

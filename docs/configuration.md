@@ -22,9 +22,14 @@ A flag wins over an environment variable. An environment variable wins over the 
 | `--tts-speaker` | `VOICE_TTS_SPEAKER` | `F` (female) | a speaker of `--tts-voice`, checked with Piper; `--tts-speaker ""` for a voice with one speaker |
 | `--ha-url` | `VOICE_HA_URL` | empty (no device control) | `http://host:port` or `https://host:port` |
 | (no flag) | `VOICE_HA_TOKEN` | empty | a Home Assistant long-lived access token; necessary with `--ha-url` |
+| `--llm-url` | `VOICE_LLM_URL` | `http://127.0.0.1:8080` | `http://host:port` or `https://host:port` of the llama.cpp command model; `VOICE_LLM_MODE=off` disables it |
+| `--llm-mode` | `VOICE_LLM_MODE` | `fallback` | `off`, `fallback` (only when the fixed parser fails) or `always` (every single sentence with a candidate device) |
+| `--llm-timeout` | `VOICE_LLM_TIMEOUT` | `30s` | Go duration, greater than 0; limit for one model answer |
+| `--room` | `VOICE_ROOM` | empty (unknown) | room where the assistant is, for example `Salon`; lets the model resolve "aquí" and ask about the right light |
+| `--learning-file` | `VOICE_LEARNING_FILE` | `client/data/learning.json` | JSON file with learned sentences and their feedback; `off` turns learning off |
 | `--log-level` | `VOICE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--log-transcripts` | `VOICE_LOG_TRANSCRIPTS` | `false` | `true` logs what Whisper heard at info level (`msg=heard text=...`); `false` logs it only at `debug` |
-| `--log-http-addr` | `VOICE_LOG_HTTP_ADDR` | empty (off) | `host:port` for the log web page of `run`, for example `0.0.0.0:8080`; see [Log web page](assistant.md#log-web-page) |
+| `--log-http-addr` | `VOICE_LOG_HTTP_ADDR` | empty (off) | `host:port` for the log web page of `run`, for example `0.0.0.0:8081`; not 8080, which is the command model; see [Log web page](assistant.md#log-web-page) |
 | `--connect-timeout` | `VOICE_CONNECT_TIMEOUT` | `3s` | Go duration, greater than 0 |
 | `--operation-timeout` | `VOICE_OPERATION_TIMEOUT` | `30s` | Go duration, greater than 0; limit for one read or write on a service connection |
 | `--config` | `VOICE_CONFIG` | empty (defaults) | path of a YAML configuration file; see "Configuration file" below |
@@ -40,7 +45,7 @@ make run ARGS="--log-level info"  # flags still win over the file
 ```
 
 - `client/.env.dev` is committed and has no secrets. When it has no `VOICE_HA_TOKEN`, `make run` uses the token in `server/homeassistant/dev-token`.
-- `client/.env.prod` is git-ignored. Copy it from `client/.env.prod.example`, set `VOICE_HA_URL` and `VOICE_HA_TOKEN`, and run `chmod 600 client/.env.prod`.
+- `client/.env.prod` is git-ignored. Copy it from `client/.env.prod.example`, set `VOICE_HA_URL` and `VOICE_HA_TOKEN`, and run `chmod 600 client/.env.prod`. The example also enables the local command model and sets `VOICE_ROOM=Salon`: change it to the room where the assistant is, or leave it empty. Set `VOICE_LLM_MODE=off` to use only the fixed parser.
 - The settings come only from the file: `make run` first removes the `VOICE_*` variables of your shell, so a development run never uses a production token by mistake.
 - The file is read by the shell (`set -a; . file`): put values with spaces in quotes.
 

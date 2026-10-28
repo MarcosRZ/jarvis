@@ -55,6 +55,10 @@ func TestLoadDefaults(t *testing.T) {
 		SpeechLevel:        -40,
 		TTSVoice:           "es_ES-sharvard-medium",
 		TTSSpeaker:         "F",
+		LLMURL:             "http://127.0.0.1:8080",
+		LLMMode:            commands.InterpretFallback,
+		LLMTimeout:         30 * time.Second,
+		LearningFile:       "client/data/learning.json",
 		LogLevel:           slog.LevelInfo,
 		ConnectTimeout:     3 * time.Second,
 		OperationTimeout:   30 * time.Second,
@@ -83,13 +87,15 @@ func TestLoadPrecedence(t *testing.T) {
 		EnvSpeechLevel:        "-45.5",
 		EnvTTSVoice:           "es_MX-claude-high",
 		EnvTTSSpeaker:         "M",
+		EnvRoom:               "Salón",
+		EnvLearningFile:       "/tmp/learning.json",
 		EnvLogLevel:           "debug",
 		EnvConnectTimeout:     "5s",
 		EnvOperationTimeout:   "1m",
 		EnvLogTranscripts:     "true",
-		EnvLogHTTPAddr:        "0.0.0.0:8080",
+		EnvLogHTTPAddr:        "0.0.0.0:8081",
 	})
-	args := []string{"--stt-addr", "host.local:4", "--wakeword-cooldown", "0s", "--input-device", "flag mic", "--connect-timeout", "250ms", "--record-max", "12s", "--speech-level", "-35", "--tts-speaker", "F"}
+	args := []string{"--stt-addr", "host.local:4", "--wakeword-cooldown", "0s", "--input-device", "flag mic", "--connect-timeout", "250ms", "--record-max", "12s", "--speech-level", "-35", "--tts-speaker", "F", "--room", " Cocina "}
 
 	cfg, err := load(args, env, io.Discard)
 	if err != nil {
@@ -110,17 +116,34 @@ func TestLoadPrecedence(t *testing.T) {
 		SpeechLevel:        -35,
 		TTSVoice:           "es_MX-claude-high",
 		TTSSpeaker:         "F",
+		Room:               "Cocina",
+		LLMURL:             "http://127.0.0.1:8080",
+		LLMMode:            commands.InterpretFallback,
+		LLMTimeout:         30 * time.Second,
+		LearningFile:       "/tmp/learning.json",
 		LogLevel:           slog.LevelDebug,
 		ConnectTimeout:     250 * time.Millisecond,
 		OperationTimeout:   time.Minute,
 		LogTranscripts:     true,
-		LogHTTPAddr:        "0.0.0.0:8080",
+		LogHTTPAddr:        "0.0.0.0:8081",
 		BeepEnabled:        true,
 		Beep:               audio.DefaultBeep,
 		Matching:           commands.DefaultMatching,
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("got %+v, want %+v", cfg, want)
+	}
+}
+
+func TestLoadCanTurnLearningOff(t *testing.T) {
+	for _, value := range []string{"off", "none", "OFF"} {
+		cfg, err := load(nil, envFrom(map[string]string{EnvLearningFile: value}), io.Discard)
+		if err != nil {
+			t.Fatalf("Load %q: %v", value, err)
+		}
+		if cfg.LearningFile != "" {
+			t.Errorf("Load %q: LearningFile %q, want empty", value, cfg.LearningFile)
+		}
 	}
 }
 
@@ -162,6 +185,9 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"ha url not http", []string{"--ha-url", "ftp://ha.local"}, map[string]string{EnvHAToken: "t"}, []string{"--ha-url", EnvHAURL}},
 		{"ha url without host", []string{"--ha-url", "http://"}, map[string]string{EnvHAToken: "t"}, []string{"--ha-url"}},
 		{"ha token is not a flag", []string{"--ha-token", "secret"}, nil, []string{"ha-token"}},
+		{"llm url not http", []string{"--llm-url", "ftp://llm.local"}, nil, []string{"--llm-url", EnvLLMURL}},
+		{"llm mode unknown", nil, map[string]string{EnvLLMMode: "sometimes"}, []string{EnvLLMMode, "sometimes"}},
+		{"llm timeout zero", []string{"--llm-timeout", "0s"}, nil, []string{"--llm-timeout", EnvLLMTimeout}},
 		{"unknown flag", []string{"--colour", "red"}, nil, []string{"colour"}},
 		{"extra argument", []string{"surprise"}, nil, []string{"surprise"}},
 	}
@@ -191,6 +217,34 @@ func TestLoadHomeAssistant(t *testing.T) {
 	}
 	if cfg, _ := load([]string{"--ha-url", "https://ha.example:8123"}, env, io.Discard); cfg.HAURL != "https://ha.example:8123" {
 		t.Errorf("flag did not win over the environment: %q", cfg.HAURL)
+	}
+}
+
+func TestLoadLanguageModel(t *testing.T) {
+	env := envFrom(map[string]string{
+		EnvLLMURL:     "http://127.0.0.1:8080/",
+		EnvLLMMode:    "always",
+		EnvLLMTimeout: "20s",
+		EnvRoom:       "Salón",
+	})
+	cfg, err := load(nil, env, io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LLMURL != "http://127.0.0.1:8080/" || cfg.LLMMode != commands.InterpretAlways || cfg.LLMTimeout != 20*time.Second {
+		t.Errorf("LLMURL %q, LLMMode %q, LLMTimeout %v", cfg.LLMURL, cfg.LLMMode, cfg.LLMTimeout)
+	}
+	if cfg.Room != "Salón" {
+		t.Errorf("room %q, want Salón", cfg.Room)
+	}
+	if cfg, _ := load([]string{"--room", ""}, env, io.Discard); cfg.Room != "" {
+		t.Errorf("flag did not win over the environment: %q", cfg.Room)
+	}
+	if cfg, _ := load([]string{"--llm-mode", "fallback"}, env, io.Discard); cfg.LLMMode != commands.InterpretFallback {
+		t.Errorf("flag did not win over the environment: %q", cfg.LLMMode)
+	}
+	if cfg, _ := load([]string{"--llm-url", ""}, env, io.Discard); cfg.LLMMode != commands.InterpretOff {
+		t.Errorf("mode %q with no URL, want off", cfg.LLMMode)
 	}
 }
 

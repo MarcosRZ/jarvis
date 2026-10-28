@@ -1,12 +1,17 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"jarvis/client/internal/learning"
 )
 
 func at(hour, minute int) func() time.Time {
@@ -64,7 +69,7 @@ func TestParse(t *testing.T) {
 		device string
 	}{
 		{"¿Qué hora es?", KindTime, ""},
-		{"Dime la hora.", KindTime, ""},
+		{"Dime la hora, por favor.", KindTime, ""},
 		{"¡Qué horas!", KindTime, ""},
 		{"que ahora es", KindTime, ""},
 		{"¿Sabes qué hora es?", KindTime, ""},
@@ -76,13 +81,20 @@ func TestParse(t *testing.T) {
 		{"¡Olvídalo!", KindCancel, ""},
 		{"¿Qué puedes hacer?", KindHelp, ""},
 		{"Ayuda.", KindHelp, ""},
+		{"Mal.", KindPenalty, ""},
+		{"Eso está mal.", KindPenalty, ""},
+		{"Te has equivocado.", KindPenalty, ""},
+		{"No es eso.", KindPenalty, ""},
 		{"Enciende la luz de la cocina.", KindTurnOn, kitchen.ID},
 		{"Prende la luz de la cocina", KindTurnOn, kitchen.ID},
+		{"Enciende la luz de la cocina, por favor.", KindTurnOn, kitchen.ID},
 		{"Apaga la luz del salón.", KindTurnOff, lounge.ID},
+		{"Apaga la luz del salón, por favor.", KindTurnOff, lounge.ID},
 		{"apaga luz del salon", KindTurnOff, lounge.ID},
 		{"Enciende el horno.", KindInvalid, ""},
 		{"Enciende.", KindInvalid, ""},
 		{"Enciende la luz de la cocina; rm -rf /", KindInvalid, ""},
+		{"por favor", KindUnknown, ""},
 		{"Apaga la luz de la cocina y la del salón", KindInvalid, ""},
 		{"Hola, ¿cómo estás?", KindUnknown, ""},
 		{"hora", KindUnknown, ""},
@@ -345,6 +357,86 @@ func TestHandleRepeatsPreviousText(t *testing.T) {
 	}
 }
 
+func TestCandidates(t *testing.T) {
+	h := newHandler(t, nil)
+	tests := map[string]string{
+		"quiero apagar la luz del salón":       lounge.ID,
+		"podrías encender la luz de la cocina": kitchen.ID,
+		"prende la luz del salón, por favor":   lounge.ID,
+		"enciende la luz":                      "",
+		"enciende el horno":                    "",
+		"hace frío":                            "",
+		"la luz del salón":                     "",
+	}
+	for text, want := range tests {
+		got := h.Candidates(text)
+		if want == "" {
+			if len(got) != 0 {
+				t.Errorf("Candidates(%q) = %+v, want none", text, got)
+			}
+			continue
+		}
+		if len(got) != 1 || got[0].ID != want {
+			t.Errorf("Candidates(%q) = %+v, want %s", text, got, want)
+		}
+	}
+}
+
+func TestParseAll(t *testing.T) {
+	h := newHandler(t, nil)
+	tests := []struct {
+		text string
+		want []Command
+	}{
+		{"Enciende la luz de la cocina.", []Command{{Kind: KindTurnOn, Device: kitchen}}},
+		{"Enciende la luz de la cocina y apaga la luz del salón.", []Command{
+			{Kind: KindTurnOn, Device: kitchen},
+			{Kind: KindTurnOff, Device: lounge},
+		}},
+		{"¿Qué hora es y qué puedes hacer?", []Command{
+			{Kind: KindTime},
+			{Kind: KindHelp},
+		}},
+		{"Apaga la luz del salón y dime qué hora es.", []Command{
+			{Kind: KindTurnOff, Device: lounge},
+			{Kind: KindTime},
+		}},
+		{"apaga la luz del salon y dime que hora es", []Command{
+			{Kind: KindTurnOff, Device: lounge},
+			{Kind: KindTime},
+		}},
+		{"Enciende la luz de la cocina e apaga la luz del salón.", []Command{
+			{Kind: KindTurnOn, Device: kitchen},
+			{Kind: KindTurnOff, Device: lounge},
+		}},
+		{"Enciende la luz de la cocina y el horno.", []Command{{Kind: KindInvalid, Argument: "luz de la cocina y el horno"}}},
+		{"Enciende la luz de la cocina y", []Command{{Kind: KindTurnOn, Device: kitchen}}},
+	}
+	for _, tt := range tests {
+		got := h.ParseAll(tt.text)
+		if len(got) != len(tt.want) {
+			t.Errorf("ParseAll(%q) = %+v, want %+v", tt.text, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i].Kind != tt.want[i].Kind || got[i].Device.ID != tt.want[i].Device.ID || got[i].Argument != tt.want[i].Argument {
+				t.Errorf("ParseAll(%q)[%d] = %+v, want %+v", tt.text, i, got[i], tt.want[i])
+			}
+		}
+	}
+}
+
+func TestHandleRunsSeveralParsedCommands(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	if got := h.Handle(context.Background(), "enciende la luz de la cocina y apaga la luz del salón"); got != ReplyDone {
+		t.Errorf("reply %q", got)
+	}
+	if !slices.Equal(devices.calls, []string{"light.kitchen=on", "light.lounge=off"}) {
+		t.Errorf("device calls %v", devices.calls)
+	}
+}
+
 func TestSpokenTime(t *testing.T) {
 	tests := []struct {
 		hour, minute int
@@ -361,5 +453,410 @@ func TestSpokenTime(t *testing.T) {
 		if got := spokenTime(at(tt.hour, tt.minute)()); got != tt.want {
 			t.Errorf("%02d:%02d = %q, want %q", tt.hour, tt.minute, got, tt.want)
 		}
+	}
+}
+
+// fakeInterpreter records each text and the devices it received, and returns
+// the configured commands.
+type fakeInterpreter struct {
+	texts    []string
+	devices  [][]Device
+	commands []Command
+	err      error
+}
+
+func (f *fakeInterpreter) Interpret(_ context.Context, text string, devices []Device) ([]Command, error) {
+	f.texts = append(f.texts, text)
+	f.devices = append(f.devices, devices)
+	return f.commands, f.err
+}
+
+func TestHandleRunsDeviceAndTimeClauses(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	got := h.Handle(context.Background(), "apaga la luz del salón y dime qué hora es")
+	want := ReplyDone + " " + spokenTime(h.now())
+	if got != want {
+		t.Errorf("reply %q, want %q", got, want)
+	}
+	if !slices.Equal(devices.calls, []string{"light.lounge=off"}) {
+		t.Errorf("device calls %v", devices.calls)
+	}
+}
+
+func TestHandleUsesInterpreterOnUnknownAndInvalid(t *testing.T) {
+	ctx := context.Background()
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOff, Device: lounge}}}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(ctx, "Enciende la luz de la cocina."); got != ReplyDone {
+		t.Errorf("known command: %q", got)
+	}
+	if len(interp.texts) != 0 {
+		t.Errorf("interpreter called for a known command: %v", interp.texts)
+	}
+
+	if got := h.Handle(ctx, "Quiero apagar la luz del salón."); got != ReplyDone {
+		t.Errorf("interpreted command: %q", got)
+	}
+	if !slices.Equal(interp.texts, []string{"Quiero apagar la luz del salón."}) {
+		t.Errorf("interpreter texts %v", interp.texts)
+	}
+	if !slices.Equal(devices.calls, []string{"light.kitchen=on", "light.lounge=off"}) {
+		t.Errorf("device calls %v", devices.calls)
+	}
+}
+
+func TestHandleRunsAnInferredAction(t *testing.T) {
+	for _, mode := range []InterpretMode{InterpretFallback, InterpretAlways} {
+		t.Run(string(mode), func(t *testing.T) {
+			devices := &fakeDevices{}
+			h := newHandler(t, devices)
+			interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOff, Device: lounge}}}
+			h.UseInterpreter(interp, mode)
+
+			if got := h.Handle(context.Background(), "hay demasiada luz aquí"); got != ReplyDone {
+				t.Errorf("reply %q, want %q", got, ReplyDone)
+			}
+			if !slices.Equal(devices.calls, []string{"light.lounge=off"}) {
+				t.Errorf("device calls %v", devices.calls)
+			}
+			// The model gets every available device, so it can reason about the room.
+			if len(interp.devices) != 1 || len(interp.devices[0]) != 2 {
+				t.Fatalf("interpreter devices %v, want the two allowlisted devices", interp.devices)
+			}
+		})
+	}
+}
+
+func TestHandleLearnsAStateAndReusesIt(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	store, err := learning.Open(filepath.Join(t.TempDir(), "learning.json"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	h.UseLearning(store)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOn, Device: lounge}}}
+	h.UseInterpreter(interp, InterpretFallback)
+	ctx := context.Background()
+
+	if got := h.Handle(ctx, "hay poca claridad"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	if got := h.Handle(ctx, "hay poca claridad"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	if len(interp.texts) != 1 {
+		t.Errorf("model asked %d times, want 1", len(interp.texts))
+	}
+	if want := []string{"light.lounge=on", "light.lounge=on"}; !slices.Equal(devices.calls, want) {
+		t.Errorf("device calls %v, want %v", devices.calls, want)
+	}
+	e, ok := store.Lookup(learningKey("hay poca claridad"))
+	if !ok || e.Score != 2 || e.Successes != 2 {
+		t.Errorf("entry %+v, %v", e, ok)
+	}
+}
+
+func TestHandlePenalizesAndReplacesTheLearnedAction(t *testing.T) {
+	now := time.Date(2026, 10, 28, 23, 0, 0, 0, time.Local)
+	devices := &fakeDevices{}
+	h, err := New(func() time.Time { return now }, []Device{kitchen, lounge}, devices)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	store, err := learning.Open(filepath.Join(t.TempDir(), "learning.json"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	h.UseLearning(store)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOn, Device: lounge}}}
+	h.UseInterpreter(interp, InterpretFallback)
+	ctx := context.Background()
+
+	if got := h.Handle(ctx, "hay poca claridad"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	if got := h.Handle(ctx, "mal"); got != ReplyPenalized {
+		t.Fatalf("reply %q", got)
+	}
+	e, ok := store.Lookup(learningKey("hay poca claridad"))
+	if !ok || e.Score != -1 || e.Successes != 0 || e.Failures != 1 {
+		t.Fatalf("entry %+v, %v", e, ok)
+	}
+
+	if got := h.Handle(ctx, "hay poca claridad"); got != ReplyUnknown {
+		t.Fatalf("reply %q, want the punished action to be dropped", got)
+	}
+	if len(interp.texts) != 2 {
+		t.Errorf("model asked %d times, want 2", len(interp.texts))
+	}
+
+	interp.commands = []Command{{Kind: KindTurnOff, Device: lounge}}
+	if got := h.Handle(ctx, "hay poca claridad"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	e, ok = store.Lookup(learningKey("hay poca claridad"))
+	if !ok || e.Kind != "turn-off" || e.Score != 1 || e.Successes != 1 || e.Failures != 0 {
+		t.Fatalf("entry %+v, %v", e, ok)
+	}
+	if got := h.Handle(ctx, "hay poca claridad"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	if len(interp.texts) != 3 {
+		t.Errorf("model asked %d times, want 3", len(interp.texts))
+	}
+	want := []string{"light.lounge=on", "light.lounge=off", "light.lounge=off"}
+	if !slices.Equal(devices.calls, want) {
+		t.Errorf("device calls %v, want %v", devices.calls, want)
+	}
+}
+
+func TestHandlePenalizesTheDeterministicState(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	h.UseRoom("salón")
+	store, err := learning.Open(filepath.Join(t.TempDir(), "learning.json"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	h.UseLearning(store)
+	ctx := context.Background()
+
+	if got := h.Handle(ctx, "no veo nada"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	if got := h.Handle(ctx, "mal"); got != ReplyPenalized {
+		t.Fatalf("reply %q", got)
+	}
+	if got := h.Handle(ctx, "no veo nada"); got != ReplyUnknown {
+		t.Fatalf("reply %q, want the punished action to be dropped", got)
+	}
+	if want := []string{"light.lounge=on"}; !slices.Equal(devices.calls, want) {
+		t.Errorf("device calls %v, want %v", devices.calls, want)
+	}
+}
+
+func TestPenaltyExpiresAndNeedsAnAction(t *testing.T) {
+	now := time.Date(2026, 10, 28, 23, 0, 0, 0, time.Local)
+	devices := &fakeDevices{}
+	h, err := New(func() time.Time { return now }, []Device{kitchen, lounge}, devices)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if got := h.Handle(context.Background(), "mal"); got != ReplyNothingToCorrect {
+		t.Fatalf("reply %q", got)
+	}
+	store, err := learning.Open(filepath.Join(t.TempDir(), "learning.json"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	h.UseLearning(store)
+	h.UseRoom("salón")
+	if got := h.Handle(context.Background(), "no veo nada"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	now = now.Add(2 * time.Minute)
+	if got := h.Handle(context.Background(), "mal"); got != ReplyNothingToCorrect {
+		t.Fatalf("reply %q", got)
+	}
+	e, ok := store.Lookup(learningKey("no veo nada"))
+	if !ok || e.Score != 1 || e.Failures != 0 {
+		t.Errorf("entry %+v, %v", e, ok)
+	}
+}
+
+func TestHandleRunsCommonLightStatesWithoutTheModel(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	h.UseRoom("salón")
+	interp := &fakeInterpreter{}
+	h.UseInterpreter(interp, InterpretFallback)
+	ctx := context.Background()
+
+	if got := h.Handle(ctx, "no veo nada"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	if got := h.Handle(ctx, "hay demasiada luz"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	want := []string{"light.lounge=on", "light.lounge=off"}
+	if !slices.Equal(devices.calls, want) {
+		t.Errorf("device calls %v, want %v", devices.calls, want)
+	}
+	if len(interp.texts) != 0 {
+		t.Errorf("model was asked: %v", interp.texts)
+	}
+}
+
+func TestCommonLightStateDoesNotGuessBetweenRooms(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	if got := h.Handle(context.Background(), "no veo nada"); got != ReplyUnknown {
+		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	}
+	if len(devices.calls) != 0 {
+		t.Errorf("device calls %v", devices.calls)
+	}
+}
+
+func TestHandleLogsTheAction(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	var logs bytes.Buffer
+	h.UseMatching(DefaultMatching, slog.New(slog.NewTextHandler(&logs, nil)), slog.LevelInfo)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOff, Device: lounge}}}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "hay demasiada luz aquí"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	for _, want := range []string{"msg=action", "source=reasoned", "kind=turn-off", "device=light.lounge", `name="la luz del salón"`, "ok=true"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("logs have no %q:\n%s", want, logs.String())
+		}
+	}
+
+	logs.Reset()
+	if got := h.Handle(context.Background(), "enciende la luz de la cocina"); got != ReplyDone {
+		t.Fatalf("reply %q", got)
+	}
+	for _, want := range []string{"msg=action", "source=parser", "kind=turn-on", "device=light.kitchen"} {
+		if !strings.Contains(logs.String(), want) {
+			t.Errorf("logs have no %q:\n%s", want, logs.String())
+		}
+	}
+}
+
+func TestHandleOnlyRunsTheFirstInferredAction(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	interp := &fakeInterpreter{commands: []Command{
+		{Kind: KindTurnOff, Device: lounge},
+		{Kind: KindTurnOn, Device: kitchen},
+	}}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "hay demasiada luz aquí"); got != ReplyDone {
+		t.Errorf("reply %q, want %q", got, ReplyDone)
+	}
+	if !slices.Equal(devices.calls, []string{"light.lounge=off"}) {
+		t.Errorf("device calls %v, want only the first inferred action", devices.calls)
+	}
+}
+
+func TestHandleDoesNotReasonAboutChat(t *testing.T) {
+	h := newHandler(t, nil)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOn, Device: lounge}}}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "pon la tele"); got != ReplyUnknown {
+		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	}
+	if len(interp.texts) != 0 {
+		t.Errorf("interpreter called for chat: %v", interp.texts)
+	}
+}
+
+func TestHandleKeepsBareDeviceNameWithAPowerVerbDeterministic(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOff, Device: lounge}}}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "enciende el ventilador"); got != `No conozco el dispositivo "ventilador".` {
+		t.Errorf("reply %q", got)
+	}
+	if len(interp.texts) != 0 {
+		t.Errorf("interpreter called for a power verb without a device: %v", interp.texts)
+	}
+	if len(devices.calls) != 0 {
+		t.Errorf("device calls %v", devices.calls)
+	}
+}
+
+func TestHandleAlwaysUsesInterpreterEvenWhenParserMatches(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOff, Device: kitchen}}}
+	h.UseInterpreter(interp, InterpretAlways)
+
+	if got := h.Handle(context.Background(), "enciende la luz de la cocina"); got != ReplyDone {
+		t.Errorf("reply %q", got)
+	}
+	if !slices.Equal(devices.calls, []string{"light.kitchen=off"}) {
+		t.Errorf("device calls %v, want the interpreted command", devices.calls)
+	}
+	if len(interp.texts) != 1 {
+		t.Errorf("interpreter texts %v", interp.texts)
+	}
+}
+
+func TestHandleDropsInterpretedDeviceOutsideCandidates(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOn, Device: kitchen}}}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "quiero apagar la luz del salón"); got != ReplyUnknown {
+		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	}
+	if len(devices.calls) != 0 {
+		t.Errorf("device calls %v for a command outside the candidates", devices.calls)
+	}
+	if len(interp.texts) != 1 {
+		t.Errorf("interpreter texts %v", interp.texts)
+	}
+}
+
+func TestHandleDropsInterpretedDeviceOutsideAllowlist(t *testing.T) {
+	h := newHandler(t, nil)
+	interp := &fakeInterpreter{commands: []Command{{
+		Kind:   KindTurnOn,
+		Device: Device{ID: "light.hall", Name: "la luz del pasillo"},
+	}}}
+	h.UseInterpreter(interp, InterpretAlways)
+
+	if got := h.Handle(context.Background(), "enciende el pasillo"); got != `No conozco el dispositivo "pasillo".` {
+		t.Errorf("reply %q", got)
+	}
+}
+
+func TestHandleDropsFixedCommandFromInterpreter(t *testing.T) {
+	h := newHandler(t, nil)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindTime}}}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "quiero apagar la luz del salón"); got != ReplyUnknown {
+		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	}
+	if len(interp.texts) != 1 {
+		t.Errorf("interpreter texts %v", interp.texts)
+	}
+}
+
+func TestHandleKeepsDeterministicCommandWhenInterpreterFails(t *testing.T) {
+	h := newHandler(t, nil)
+	interp := &fakeInterpreter{err: errors.New("language model down")}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "Quiero apagar la luz del salón."); got != ReplyUnknown {
+		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	}
+	if len(interp.texts) != 1 {
+		t.Errorf("interpreter texts %v", interp.texts)
+	}
+}
+
+func TestHandleIgnoresDeviceOfFixedInterpretedCommand(t *testing.T) {
+	h := newHandler(t, nil)
+	interp := &fakeInterpreter{commands: []Command{{Kind: KindRepeat, Device: kitchen}}}
+	h.UseInterpreter(interp, InterpretAlways)
+
+	if got := h.Handle(context.Background(), "repite"); got != ReplyNothingToRepeat {
+		t.Errorf("reply %q", got)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ const (
 	setupTimeout   = 3 * time.Minute
 	requestTimeout = 10 * time.Second
 	pollInterval   = 2 * time.Second
+	entityWait     = 30 * time.Second
 )
 
 // spanishNames are the names for the entities of the demo integration. Each
@@ -70,7 +72,7 @@ func setup(ctx context.Context, base, tokenFile, passwordFile string) error {
 	if done {
 		if tokenWorks(ctx, client, base, tokenFile) {
 			fmt.Printf("Home Assistant at %s is already set up; the token in %s works.\n", base, tokenFile)
-			return nil
+			return renameExisting(ctx, base, tokenFile)
 		}
 		return fmt.Errorf("Home Assistant at %s is already set up, but %s has no working token; run \"make ha-reset\" to start again, or create a token in Profile > Security and write it to that file", base, tokenFile)
 	}
@@ -114,11 +116,6 @@ func setup(ctx context.Context, base, tokenFile, passwordFile string) error {
 	if err := session.Call(ctx, map[string]any{"type": "auth/long_lived_access_token", "client_name": tokenName, "lifespan": tokenDays}, &token); err != nil {
 		return err
 	}
-	for id, name := range spanishNames {
-		if err := session.Call(ctx, map[string]any{"type": "config/entity_registry/update", "entity_id": id, "name": name}, nil); err != nil {
-			return fmt.Errorf("rename %s: %w", id, err)
-		}
-	}
 	if err := os.WriteFile(tokenFile, []byte(token+"\n"), 0o600); err != nil {
 		return err
 	}
@@ -126,7 +123,75 @@ func setup(ctx context.Context, base, tokenFile, passwordFile string) error {
 		return err
 	}
 	fmt.Printf("Home Assistant at %s is set up.\n  web login: user %s, password in %s\n  token: written to %s\n", base, devUser, passwordFile, tokenFile)
+	if err := renameDemoEntities(ctx, session); err != nil {
+		return err
+	}
 	return nil
+}
+
+// renameExisting retries the demo names for an installation that already has a
+// working token, so a failed or partial setup can be fixed without a reset.
+func renameExisting(ctx context.Context, base, tokenFile string) error {
+	b, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return err
+	}
+	session, err := homeassistant.Connect(ctx, homeassistant.Config{URL: base, Token: strings.TrimSpace(string(b)), Timeout: requestTimeout})
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	return renameDemoEntities(ctx, session)
+}
+
+// renameDemoEntities waits for the demo integration to create its entities,
+// then gives them the Spanish names. An entity that is still missing after
+// entityWait (for example, because a Home Assistant version changed the demo
+// set) is skipped with a warning, so the rest of the setup stays usable.
+func renameDemoEntities(ctx context.Context, session *homeassistant.Session) error {
+	pending := make(map[string]string, len(spanishNames))
+	for id, name := range spanishNames {
+		pending[id] = name
+	}
+	deadline := time.Now().Add(entityWait)
+	for {
+		var entities []struct {
+			EntityID string `json:"entity_id"`
+		}
+		if err := session.Call(ctx, map[string]any{"type": "config/entity_registry/list"}, &entities); err != nil {
+			return fmt.Errorf("list entities: %w", err)
+		}
+		present := make(map[string]bool, len(entities))
+		for _, e := range entities {
+			present[e.EntityID] = true
+		}
+		for id, name := range pending {
+			if !present[id] {
+				continue
+			}
+			if err := session.Call(ctx, map[string]any{"type": "config/entity_registry/update", "entity_id": id, "name": name}, nil); err != nil {
+				return fmt.Errorf("rename %s: %w", id, err)
+			}
+			delete(pending, id)
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			missing := make([]string, 0, len(pending))
+			for id := range pending {
+				missing = append(missing, id)
+			}
+			sort.Strings(missing)
+			fmt.Fprintf(os.Stderr, "ha-dev-setup: demo entities not found, skipped: %s\n", strings.Join(missing, ", "))
+			return nil
+		}
+		select {
+		case <-time.After(pollInterval):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 // waitForOnboarding waits until Home Assistant answers, and reports whether

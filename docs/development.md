@@ -11,8 +11,9 @@ Build, tests, platforms, CI and releases.
 
 ```sh
 make build              # client/bin/voice-client, VERSION=x.y.z sets the version
+make llm-model          # downloads the command model into server/models/llm (about 470 MB)
 make test               # go test ./...; needs no voice service and no audio device
-make integration        # tests against the running Docker services (see [voice-services.md](voice-services.md))
+make integration        # tests against the running Docker services (see [voice-services.md](voice-services.md)); the language-model test skips if llama.cpp is not ready
 make lint               # gofmt check and go vet ./...
 make clean
 ```
