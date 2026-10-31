@@ -23,7 +23,7 @@ import (
 )
 
 // This test needs the Docker services from server/compose.yaml. A paced source
-// plays Piper speech like a microphone: "Aleksei", a pause, then a command.
+// plays Piper speech like a microphone: "Alexa", a pause, then a command.
 // All real adapters run; only the speaker output is a fake.
 
 const testSpeechVoice = "es_ES-davefx-medium"
@@ -80,7 +80,7 @@ func speech(t *testing.T, client *tts.Client, text string) ([]byte, audio.Format
 	return s.PCM, s.Format
 }
 
-// conversation is said in order, each command after "Aleksei"; want is the
+// conversation is said in order, each command after "Alexa"; want is the
 // start of each reply.
 var conversation = []struct{ command, want string }{
 	{"¿Qué hora es?", "Son las 10 y cuarto."},
@@ -156,12 +156,12 @@ func lightIsOn(t *testing.T, url, token, id string) bool {
 	return s.State == "on"
 }
 
-// converse says each command after "Aleksei" through the real services and
+// converse says each command after "Alexa" through the real services and
 // returns what Whisper heard and what the assistant replied.
 func converse(t *testing.T, handler *commands.Handler, spoken []string) (heard, said []string) {
 	t.Helper()
 	voice := tts.New(tts.Config{Addr: ttsAddr, Voice: testSpeechVoice, Timeouts: integrationTimeouts})
-	wake, format := speech(t, voice, "Aleksei.")
+	wake, format := speech(t, voice, "Alexa.")
 	silence := func(d time.Duration) []byte { return make([]byte, format.BytesFor(d)) }
 	input := silence(time.Second)
 	for _, text := range spoken {

@@ -20,7 +20,7 @@ The voice services run in Docker Desktop (WSL 2), as on the Mac. The client runs
 .\scripts\run.ps1 devices      # microphone and speaker names, for VOICE_INPUT_DEVICE and VOICE_OUTPUT_DEVICE
 .\scripts\run.ps1 mic-test     # shows the microphone level each second
 .\scripts\run.ps1 loopback     # records 5 s and plays it back
-.\scripts\run.ps1 wake-test    # say "Aleksei"
+.\scripts\run.ps1 wake-test    # say "Alexa"
 .\scripts\run.ps1 stt-test     # say a command
 .\scripts\run.ps1              # the assistant
 ```

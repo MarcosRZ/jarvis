@@ -3,7 +3,7 @@
 `say` sends each `--text` to Piper and plays the speech on `--output-device`, one after the other:
 
 ```text
-$ client/bin/voice-client say --text "Hola, soy Aleksei." --text "Son las diez y cuarto."
+$ client/bin/voice-client say --text "Hola, soy Alexa." --text "Son las diez y cuarto."
 1: 1.36s of speech, Piper 120ms, playback 1.554s
 2: 1.16s of speech, Piper 56ms, playback 1.359s
 ```

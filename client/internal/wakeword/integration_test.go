@@ -14,7 +14,7 @@ import (
 )
 
 // These tests need the Docker services from server/compose.yaml. Piper makes
-// the samples. The wake word is "Aleksei", detected by the English "alexa" model.
+// the samples. The wake word is "Alexa", detected by the English "alexa" model.
 
 const (
 	wakeModel    = "alexa"
@@ -133,9 +133,9 @@ func detections(t *testing.T, s *sample) []Detection {
 func TestIntegrationWakeWordPositive(t *testing.T) {
 	for _, voice := range []string{spanishVoice, englishVoice} {
 		t.Run(voice, func(t *testing.T) {
-			pcm, format := synthesize(t, "Aleksei.", voice)
+			pcm, format := synthesize(t, "Alexa.", voice)
 			if got := detections(t, newSample(pcm, format)); len(got) != 1 {
-				t.Fatalf("got %d detections for \"Aleksei\", want 1", len(got))
+				t.Fatalf("got %d detections for \"Alexa\", want 1", len(got))
 			}
 		})
 	}

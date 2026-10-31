@@ -20,17 +20,17 @@ say the wake word (alexa); press Ctrl+C to stop
 3. Check it: `cd server && docker compose exec openwakeword cat /proc/1/cmdline | tr '\0' ' '` shows `... --threshold 0.6 --refractory-seconds 2`.
 4. Test it with `wake-test` (see the test procedure below).
 
-**Wake word: "Aleksei".** openWakeWord has no Spanish models, and training a custom model is separate work. The built-in English `alexa` model reacts to the "a-lek-s..." sound, so it detects "Aleksei" in Spanish and in English. Test with Piper voices (2026-10-20):
+**Wake word: "Alexa".** openWakeWord has no Spanish models, and training a custom model is separate work. The built-in English `alexa` model reacts to the "a-lek-s..." sound, so it detects "Alexa" in Spanish and in English. Test with Piper voices (2026-10-20):
 
 | Phrase | `alexa` model |
 |---|---|
-| "Aleksei.", "Oye, Aleksei.", "Aleksei, ¿qué hora es?" (Spanish and English voice) | detected |
-| "Alexa.", "Alexis.", "Alex, pásame la sal." | detected: these names also wake the assistant |
+| "Alexa.", "Oye, Alexa.", "Alexa, ¿qué hora es?" (Spanish and English voice) | detected |
+| "Alexis.", "Alex, pásame la sal." | detected: these names also wake the assistant |
 | "Alejandro viene mañana.", "Es una lección difícil.", "El texto es largo.", "Hay que elegir una opción.", "A lo mejor llueve.", "Los alelíes del jardín.", "Buenos días, ¿cómo estás?" | not detected |
 
-Real voice (macOS, built-in microphone, threshold `0.5`, 2026-10-20): the user said "Aleksei" in `wake-test` and it was detected. No counts were recorded; use the test procedure below for numbers.
+Real voice (macOS, built-in microphone, threshold `0.5`, 2026-10-20): the user said "Alexa" in `wake-test` and it was detected. No counts were recorded; use the test procedure below for numbers.
 
-To use only "Aleksei", or another word, train a custom model and mount it with `--custom-model-dir`.
+To use another word, train a custom model and mount it with `--custom-model-dir`.
 
 **Model.** `--wakeword-model` selects the model. At each connection the client asks openWakeWord with `describe` whether it offers that model, and stops with the list of available models when it does not. Without this check, openWakeWord would silently listen for `okay_nabu`.
 
@@ -46,4 +46,4 @@ To use only "Aleksei", or another word, train a custom model and mount it with `
 2. False positives: run `wake-test` for 30 minutes or more with normal room sound (talking, TV, music) and no wake word. Count the detections.
 3. Write down the threshold, the microphone, the distance and the results. Change `WAKEWORD_THRESHOLD` and repeat if necessary.
 
-`make integration` also runs a fixed check. Piper says "Aleksei" (Spanish voice, then English voice), and each must give exactly one detection. Piper then says a Spanish sentence without the wake word, and it must give none.
+`make integration` also runs a fixed check. Piper says "Alexa" (Spanish voice, then English voice), and each must give exactly one detection. Piper then says a Spanish sentence without the wake word, and it must give none.

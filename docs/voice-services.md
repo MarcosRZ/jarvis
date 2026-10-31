@@ -50,7 +50,7 @@ If a first start stops during the download, Whisper can fail with `Unable to ope
 
 | Service | Image (pinned) | Upstream source | Port | Model or voice | License |
 |---|---|---|---|---|---|
-| Wake word | `rhasspy/wyoming-openwakeword:2.1.0@sha256:52cb1168…d42b` | github.com/rhasspy/wyoming-openwakeword, github.com/dscripka/openWakeWord | 10400 | `alexa` v0.1 (built in), used for "Aleksei" | Code: Apache-2.0. Pre-trained models: CC BY-NC-SA 4.0 (non-commercial) |
+| Wake word | `rhasspy/wyoming-openwakeword:2.1.0@sha256:52cb1168…d42b` | github.com/rhasspy/wyoming-openwakeword, github.com/dscripka/openWakeWord | 10400 | `alexa` v0.1 (built in), used for "Alexa" | Code: Apache-2.0. Pre-trained models: CC BY-NC-SA 4.0 (non-commercial) |
 | STT | `rhasspy/wyoming-whisper:3.8.1@sha256:ba6fcb60…0d80` | github.com/rhasspy/wyoming-faster-whisper, github.com/SYSTRAN/faster-whisper | 10300 | `Systran/faster-whisper-base` (multilingual, `es` set) | Wrapper: MIT. faster-whisper: MIT. Model: MIT |
 | TTS | `rhasspy/wyoming-piper:2.5.2@sha256:7d39aafa…af7a` | github.com/rhasspy/wyoming-piper, github.com/OHF-Voice/piper1-gpl | 10200 | `es_ES-sharvard-medium`, speaker `F` (22050 Hz) | Wrapper: MIT. Piper engine: GPL-3.0. Voice dataset: CC BY 3.0 (attribution required) |
 | LLM | `ghcr.io/ggml-org/llama.cpp:server@sha256:8052c13e…e220` | github.com/ggml-org/llama.cpp | 8080 | `qwen2.5-0.5b-instruct-q4_k_m` | llama.cpp: MIT. Model: Apache-2.0 |

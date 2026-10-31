@@ -36,6 +36,6 @@ On the next starts it only checks that the saved token works. Open http://127.0.
 - the exposed devices are listed;
 - a device that is un-exposed is gone from the list, and comes back when it is exposed again, with no restart;
 - `SetPower` switches a light off, on and off, checked with its state;
-- end to end: Piper says "Aleksei" and "Enciende la luz de la cocina", and the reply is "Hecho." with the light on in Home Assistant.
+- end to end: Piper says "Alexa" and "Enciende la luz de la cocina", and the reply is "Hecho." with the light on in Home Assistant.
 
 **Add a command.** Add a `Kind`, its phrases and its case in `Execute`, with tests. The pipeline does not change: it only calls `Handle(ctx, text)`.

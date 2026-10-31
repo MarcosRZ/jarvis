@@ -81,7 +81,7 @@ const (
 	defaultWakeWordAddr       = "127.0.0.1:10400"
 	defaultSTTAddr            = "127.0.0.1:10300"
 	defaultTTSAddr            = "127.0.0.1:10200"
-	defaultWakeWordModel      = "alexa" // detects the spoken word "Aleksei" in Spanish and English
+	defaultWakeWordModel      = "alexa" // detects the spoken word "Alexa" in Spanish and English
 	defaultWakeWordCooldown   = 2 * time.Second
 	defaultSTTLanguage        = "es"
 	defaultRecordMax          = 8 * time.Second

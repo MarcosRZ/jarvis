@@ -1,11 +1,11 @@
 # Jarvis: local voice assistant in Spanish
 
-Say **"Aleksei"**, wait for the beep, and give a command. The assistant answers out loud and switches the lights and switches of your Home Assistant. Everything runs on your own computers: no cloud and no API keys.
+Say **"Alexa"**, wait for the beep, and give a command. The assistant answers out loud and switches the lights and switches of your Home Assistant. Everything runs on your own computers: no cloud and no API keys.
 
 You can also send the same commands as text while the assistant runs: `client/bin/voice-client text --text "¿Qué hora es?"`. The text skips the wake word and speech recognition and takes the same path as a spoken command, including the reply out loud. Both channels stay available. See [Text channel](docs/assistant.md#text-channel).
 
 ```text
-microphone ─▶ voice-client (Go) ──▶ openWakeWord      "Aleksei"          ┐
+microphone ─▶ voice-client (Go) ──▶ openWakeWord      "Alexa"            ┐
 speaker   ◀─        │          ──▶ Whisper / Parakeet  speech to text     ├─ Docker
                     │          ──▶ Piper               text to speech     │
                     │          ──▶ llama.cpp           command fallback   ┘
@@ -152,7 +152,7 @@ More: [docs/limitations.md](docs/limitations.md).
 | [assistant.md](docs/assistant.md) | the pipeline, states, beep, errors, privacy, log web page |
 | [commands.md](docs/commands.md) | voice commands, device allowlist, misheard-word correction |
 | [home-assistant.md](docs/home-assistant.md) | which devices, security, development Home Assistant |
-| [wake-word.md](docs/wake-word.md) | "Aleksei", sensitivity, test procedure |
+| [wake-word.md](docs/wake-word.md) | "Alexa", sensitivity, test procedure |
 | [speech-recognition.md](docs/speech-recognition.md) | end of speech, Whisper and Parakeet, measurements |
 | [speech-output.md](docs/speech-output.md) | Piper, voices, playback |
 | [voice-services.md](docs/voice-services.md) | Docker services, models, images, licenses, health checks |

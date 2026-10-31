@@ -49,7 +49,7 @@ func TestIntegrationSpeaker(t *testing.T) {
 	if err := female.Check(context.Background()); err != nil {
 		t.Fatalf("Check speaker F: %v", err)
 	}
-	if _, err := female.Synthesize(context.Background(), "Hola, soy Aleksei."); err != nil {
+	if _, err := female.Synthesize(context.Background(), "Hola, soy Alexa."); err != nil {
 		t.Fatalf("Synthesize with speaker F: %v", err)
 	}
 	unknown := New(Config{Addr: ttsAddr(), Voice: voice, Speaker: "X", Timeouts: integrationTimeouts})

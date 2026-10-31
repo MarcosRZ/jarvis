@@ -11,7 +11,7 @@ A flag wins over an environment variable. An environment variable wins over the 
 | `--tts-addr` | `VOICE_TTS_ADDR` | `127.0.0.1:10200` | `host:port`, port 1 to 65535 |
 | `--input-device` | `VOICE_INPUT_DEVICE` | empty (system default) | device name from `devices` |
 | `--output-device` | `VOICE_OUTPUT_DEVICE` | empty (system default) | device name from `devices` |
-| `--wakeword-model` | `VOICE_WAKEWORD_MODEL` | `alexa` (say "Aleksei") | a model that openWakeWord lists |
+| `--wakeword-model` | `VOICE_WAKEWORD_MODEL` | `alexa` (say "Alexa") | a model that openWakeWord lists |
 | `--wakeword-cooldown` | `VOICE_WAKEWORD_COOLDOWN` | `2s` | Go duration, 0 or greater |
 | `--stt-language` | `VOICE_STT_LANGUAGE` | `es` | language code for Whisper, not empty |
 | `--record-max` | `VOICE_RECORD_MAX` | `8s` | greater than 0, at most `30s` (one Whisper window) |
