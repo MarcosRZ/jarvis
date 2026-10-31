@@ -2,6 +2,8 @@
 
 Say **"Aleksei"**, wait for the beep, and give a command. The assistant answers out loud and switches the lights and switches of your Home Assistant. Everything runs on your own computers: no cloud and no API keys.
 
+You can also send the same commands as text while the assistant runs: `client/bin/voice-client text --text "¿Qué hora es?"`. The text skips the wake word and speech recognition and takes the same path as a spoken command, including the reply out loud. Both channels stay available. See [Text channel](docs/assistant.md#text-channel).
+
 ```text
 microphone ─▶ voice-client (Go) ──▶ openWakeWord      "Aleksei"          ┐
 speaker   ◀─        │          ──▶ Whisper / Parakeet  speech to text     ├─ Docker
@@ -90,6 +92,7 @@ Without a real Home Assistant, `make ha-up` starts a development one with demo l
 | List audio devices | `.\scripts\run.ps1 devices` | `client/bin/voice-client devices` |
 | Microphone level / record and play back | `.\scripts\run.ps1 mic-test` / `loopback` | `client/bin/voice-client mic-test` / `loopback` |
 | Test the wake word / speech recognition | `.\scripts\run.ps1 wake-test` / `stt-test` | `client/bin/voice-client wake-test` / `stt-test` |
+| Send a text command | `.\scripts\run.ps1 text --text "¿Qué hora es?"` | `client/bin/voice-client text --text "¿Qué hora es?"` |
 | Show the effective settings | `.\scripts\run.ps1 -NoServices config-check` | `client/bin/voice-client config-check` |
 | Read the log from another computer | `curl http://<mini-pc>:8081/?n=50` | |
 

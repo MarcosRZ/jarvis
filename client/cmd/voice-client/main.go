@@ -25,6 +25,7 @@ const (
 	commandWakeTest    = "wake-test"
 	commandSTTTest     = "stt-test"
 	commandSay         = "say"
+	commandText        = "text"
 	commandRun         = "run"
 
 	flagDuration = "duration"
@@ -68,7 +69,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return exitOK
 	case commandDevices:
 		return listDevices(stdout, stderr)
-	case commandConfigCheck, commandRun, commandMicTest, commandLoopback, commandWakeTest, commandSTTTest, commandSay:
+	case commandConfigCheck, commandRun, commandMicTest, commandLoopback, commandWakeTest, commandSTTTest, commandSay, commandText:
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", command)
 		printUsage(stderr)
@@ -86,6 +87,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	if command == commandSay {
 		fs.Var(&lines, flagText, "text to speak; repeat the flag to speak several texts in order")
 	}
+	if command == commandText {
+		fs.Var(&lines, flagText, "text to send to the running assistant; repeat the flag to send several texts in order")
+	}
 	cfg, err := config.Load(fs, args[1:], getenv)
 	if errors.Is(err, flag.ErrHelp) {
 		return exitOK
@@ -93,7 +97,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	if err == nil && isAudioTest && (duration <= 0 || duration > durations.max) {
 		err = fmt.Errorf("--%s %v: use a value greater than 0 and at most %v", flagDuration, duration, durations.max)
 	}
-	if err == nil && command == commandSay {
+	if err == nil && (command == commandSay || command == commandText) {
 		err = lines.validate()
 	}
 	if err != nil {
@@ -131,6 +135,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return sttTest(ctx, cfg, stdout, logger)
 	case commandSay:
 		return say(ctx, cfg, lines, stdout, logger)
+	case commandText:
+		return sendTexts(ctx, cfg, lines, stdout, stderr)
 	}
 	return runAssistant(ctx, cfg, logger)
 }
@@ -150,10 +156,11 @@ commands:
   %-13s listen for the wake word and print each detection
   %-13s wake word, then print the command that Whisper recognizes
   %-13s speak --text with Piper on the output device
+  %-13s send --text to a running assistant and print its reply
   %-13s start the assistant
 
 Use "voice-client <command> -h" to see the flags of a command.
-`, commandVersion, commandConfigCheck, commandDevices, commandMicTest, commandLoopback, commandWakeTest, commandSTTTest, commandSay, commandRun)
+`, commandVersion, commandConfigCheck, commandDevices, commandMicTest, commandLoopback, commandWakeTest, commandSTTTest, commandSay, commandText, commandRun)
 }
 
 func beepState(cfg config.Config) string {
@@ -192,6 +199,7 @@ func printConfig(w io.Writer, cfg config.Config) {
 		{"log-level", cfg.LogLevel},
 		{"log-transcripts", cfg.LogTranscripts},
 		{"log-http-addr", fmt.Sprintf("%q", cfg.LogHTTPAddr)},
+		{"text-addr", fmt.Sprintf("%q", cfg.TextAddr)},
 		{"connect-timeout", cfg.ConnectTimeout},
 		{"operation-timeout", cfg.OperationTimeout},
 		{"config", fmt.Sprintf("%q", cfg.ConfigFile)},

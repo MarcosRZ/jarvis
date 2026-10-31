@@ -15,6 +15,7 @@ import (
 	"jarvis/client/internal/llm"
 	"jarvis/client/internal/pipeline"
 	"jarvis/client/internal/stt"
+	"jarvis/client/internal/textinput"
 	"jarvis/client/internal/wakeword"
 )
 
@@ -89,6 +90,14 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 		DiscardInput: capture.Discard,
 	}, logger)
 	p.LogTranscripts = cfg.LogTranscripts
+	if cfg.TextAddr != "" {
+		server := textinput.NewServer(cfg.TextAddr, p.Submit, logger)
+		if err := server.Start(ctx); err != nil {
+			logger.Error("text input", "error", err)
+			return exitError
+		}
+		logger.Info("text input", "addr", cfg.TextAddr)
+	}
 	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled)
 	return stopCode(p.Run(ctx), logger)
 }

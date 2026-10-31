@@ -59,6 +59,7 @@ func TestLoadDefaults(t *testing.T) {
 		LLMMode:            commands.InterpretFallback,
 		LLMTimeout:         30 * time.Second,
 		LearningFile:       "client/data/learning.json",
+		TextAddr:           "127.0.0.1:8082",
 		LogLevel:           slog.LevelInfo,
 		ConnectTimeout:     3 * time.Second,
 		OperationTimeout:   30 * time.Second,
@@ -94,6 +95,7 @@ func TestLoadPrecedence(t *testing.T) {
 		EnvOperationTimeout:   "1m",
 		EnvLogTranscripts:     "true",
 		EnvLogHTTPAddr:        "0.0.0.0:8081",
+		EnvTextAddr:           "127.0.0.1:9999",
 	})
 	args := []string{"--stt-addr", "host.local:4", "--wakeword-cooldown", "0s", "--input-device", "flag mic", "--connect-timeout", "250ms", "--record-max", "12s", "--speech-level", "-35", "--tts-speaker", "F", "--room", " Cocina "}
 
@@ -121,6 +123,7 @@ func TestLoadPrecedence(t *testing.T) {
 		LLMMode:            commands.InterpretFallback,
 		LLMTimeout:         30 * time.Second,
 		LearningFile:       "/tmp/learning.json",
+		TextAddr:           "127.0.0.1:9999",
 		LogLevel:           slog.LevelDebug,
 		ConnectTimeout:     250 * time.Millisecond,
 		OperationTimeout:   time.Minute,
@@ -165,6 +168,7 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"cooldown env not a duration", nil, map[string]string{EnvWakeWordCooldown: "soon"}, []string{EnvWakeWordCooldown, "soon"}},
 		{"log level env unknown", nil, map[string]string{EnvLogLevel: "loud"}, []string{EnvLogLevel, "loud"}},
 		{"log web page address", []string{"--log-http-addr", "8080"}, nil, []string{"--log-http-addr", "use host:port"}},
+		{"text input address", []string{"--text-addr", "8082"}, nil, []string{"--text-addr", "use host:port"}},
 		{"log transcripts env not a bool", nil, map[string]string{EnvLogTranscripts: "sí"}, []string{EnvLogTranscripts, "use true or false"}},
 		{"log level flag unknown", []string{"--log-level", "loud"}, nil, []string{"log-level"}},
 		{"connect timeout zero", []string{"--connect-timeout", "0s"}, nil, []string{"--connect-timeout", EnvConnectTimeout}},

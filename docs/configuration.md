@@ -30,6 +30,7 @@ A flag wins over an environment variable. An environment variable wins over the 
 | `--log-level` | `VOICE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--log-transcripts` | `VOICE_LOG_TRANSCRIPTS` | `false` | `true` logs what Whisper heard at info level (`msg=heard text=...`); `false` logs it only at `debug` |
 | `--log-http-addr` | `VOICE_LOG_HTTP_ADDR` | empty (off) | `host:port` for the log web page of `run`, for example `0.0.0.0:8081`; not 8080, which is the command model; see [Log web page](assistant.md#log-web-page) |
+| `--text-addr` | `VOICE_TEXT_ADDR` | `127.0.0.1:8082` | `host:port` where `run` accepts text commands for the `text` command; empty turns the channel off; see [Text channel](assistant.md#text-channel) |
 | `--connect-timeout` | `VOICE_CONNECT_TIMEOUT` | `3s` | Go duration, greater than 0 |
 | `--operation-timeout` | `VOICE_OPERATION_TIMEOUT` | `30s` | Go duration, greater than 0; limit for one read or write on a service connection |
 | `--config` | `VOICE_CONFIG` | empty (defaults) | path of a YAML configuration file; see "Configuration file" below |

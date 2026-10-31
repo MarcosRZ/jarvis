@@ -5,8 +5,10 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"jarvis/client/internal/audio"
@@ -14,6 +16,9 @@ import (
 	"jarvis/client/internal/tts"
 	"jarvis/client/internal/wakeword"
 )
+
+// ErrStopped is returned by Submit when Run is not serving requests.
+var ErrStopped = errors.New("assistant stopped")
 
 type State string
 
@@ -58,15 +63,69 @@ type Pipeline struct {
 	logger  *slog.Logger
 	state   State
 	entered time.Time
+
+	text     chan textRequest
+	done     chan struct{}
+	stopOnce sync.Once
+}
+
+type textRequest struct {
+	text  string
+	reply chan string
+}
+
+func (r textRequest) respond(text string) {
+	select {
+	case r.reply <- text:
+	default:
+	}
 }
 
 func New(steps Steps, logger *slog.Logger) *Pipeline {
-	return &Pipeline{steps: steps, logger: logger, state: StateStarting, entered: time.Now()}
+	return &Pipeline{
+		steps:   steps,
+		logger:  logger,
+		state:   StateStarting,
+		entered: time.Now(),
+		text:    make(chan textRequest, textQueue),
+		done:    make(chan struct{}),
+	}
+}
+
+// textQueue is how many text commands may wait while one is handled.
+const textQueue = 8
+
+// Submit handles text as if a transcription had produced it, and returns the
+// reply. It waits while Run handles a voice request; it returns ErrStopped when
+// the assistant is not running.
+func (p *Pipeline) Submit(ctx context.Context, text string) (string, error) {
+	reply := make(chan string, 1)
+	select {
+	case p.text <- textRequest{text: text, reply: reply}:
+	case <-p.done:
+		return "", ErrStopped
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	select {
+	case text := <-reply:
+		return text, nil
+	case <-p.done:
+		select {
+		case text := <-reply:
+			return text, nil
+		default:
+			return "", ErrStopped
+		}
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
 // Run serves requests until ctx ends or a step fails in a way that a retry
 // cannot fix. A failed request gets a spoken error and does not stop Run.
 func (p *Pipeline) Run(ctx context.Context) error {
+	defer p.stopOnce.Do(func() { close(p.done) })
 	for {
 		if err := p.serve(ctx); err != nil {
 			p.enter(StateStopped, "reason", err)
@@ -75,13 +134,17 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	}
 }
 
-// serve handles one wake word, from listening to the end of the reply.
+// serve handles one request, either a text input or a wake word, from listening
+// to the end of the reply.
 func (p *Pipeline) serve(ctx context.Context) error {
 	p.steps.DiscardInput()
 	p.enter(StateListening)
-	det, err := p.steps.WaitForWakeWord(ctx)
+	det, req, err := p.wait(ctx)
 	if err != nil {
 		return err
+	}
+	if req != nil {
+		return p.answerText(ctx, *req)
 	}
 
 	if p.steps.Acknowledge != nil {
@@ -127,6 +190,62 @@ func (p *Pipeline) serve(ctx context.Context) error {
 
 	p.enter(StateHandling, "stt_processing", res.Processing, "stt_total", res.Total)
 	return p.reply(ctx, p.steps.Handle(ctx, text), recorded)
+}
+
+// wait returns the next request: a pending text command, or one wake word. The
+// wake-word wait is stopped when text arrives, so the microphone is not read
+// while the answer plays.
+func (p *Pipeline) wait(ctx context.Context) (wakeword.Detection, *textRequest, error) {
+	select {
+	case req := <-p.text:
+		return wakeword.Detection{}, &req, nil
+	default:
+	}
+
+	type result struct {
+		det wakeword.Detection
+		err error
+	}
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan result, 1)
+	go func() {
+		det, err := p.steps.WaitForWakeWord(waitCtx)
+		results <- result{det: det, err: err}
+	}()
+	select {
+	case r := <-results:
+		return r.det, nil, r.err
+	case req := <-p.text:
+		cancel()
+		<-results
+		return wakeword.Detection{}, &req, nil
+	case <-ctx.Done():
+		cancel()
+		<-results
+		return wakeword.Detection{}, nil, ctx.Err()
+	}
+}
+
+// answerText handles text from the alternative source at the same point as a
+// transcription: the same command handler, reply and speaker.
+func (p *Pipeline) answerText(ctx context.Context, req textRequest) error {
+	text := strings.TrimSpace(req.text)
+	level := slog.LevelDebug
+	if p.LogTranscripts {
+		level = slog.LevelInfo
+	}
+	p.logger.Log(ctx, level, "heard", "source", "text", "text", text)
+	if text == "" {
+		req.respond(ReplyNotUnderstood)
+		return p.reply(ctx, ReplyNotUnderstood, time.Now())
+	}
+
+	started := time.Now()
+	p.enter(StateHandling, "source", "text")
+	reply := p.steps.Handle(ctx, text)
+	req.respond(reply)
+	return p.reply(ctx, reply, started)
 }
 
 // reply speaks text. since is the end of the recording, for the response latency.

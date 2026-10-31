@@ -11,11 +11,14 @@ client/bin/voice-client loopback [--duration 5s] [flags]    # record, then play 
 client/bin/voice-client wake-test [flags]      # listen for the wake word and print each detection
 client/bin/voice-client stt-test [flags]       # wake word, then print the command that Whisper recognizes
 client/bin/voice-client say --text "..." [--text "..."] [flags]   # speak each text in order with Piper
+client/bin/voice-client text --text "..." [--text "..."] [flags]  # send texts to a running assistant and print the replies
 client/bin/voice-client run [flags]            # the assistant; stop with Ctrl+C (SIGINT) or SIGTERM
 client/bin/voice-client <command> -h           # list the flags of a command
 ```
 
 `version` and `config-check` need no voice service and no audio device. Exit codes: 0 OK, 1 runtime error, 2 usage error, 3 invalid configuration. `mic-test` accepts up to `1h`. `loopback` accepts up to `30s`, because it keeps the recording in memory.
+
+`text` sends each `--text` to the running `run` at `--text-addr` (default `127.0.0.1:8082`) and prints the reply. The text skips the wake word and speech recognition and enters the assistant at the same point as a transcription: the same command handler, learned sentences, Home Assistant control and spoken reply. Both channels stay available; one request is handled at a time, so a text waits while a voice command is in progress. See [Text channel](assistant.md#text-channel).
 
 `devices` shows each device with the name that `--input-device` and `--output-device` accept. When two devices of one kind have the same name, the second one gets ` #2`, the third ` #3`, in the order of the system list:
 

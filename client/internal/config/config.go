@@ -48,6 +48,7 @@ const (
 	EnvConfig           = "VOICE_CONFIG"
 	EnvLogTranscripts   = "VOICE_LOG_TRANSCRIPTS"
 	EnvLogHTTPAddr      = "VOICE_LOG_HTTP_ADDR"
+	EnvTextAddr         = "VOICE_TEXT_ADDR"
 
 	flagWakeWordAddr       = "wakeword-addr"
 	flagSTTAddr            = "stt-addr"
@@ -75,6 +76,7 @@ const (
 	flagConfig             = "config"
 	flagLogTranscripts     = "log-transcripts"
 	flagLogHTTPAddr        = "log-http-addr"
+	flagTextAddr           = "text-addr"
 
 	defaultWakeWordAddr       = "127.0.0.1:10400"
 	defaultSTTAddr            = "127.0.0.1:10300"
@@ -92,6 +94,7 @@ const (
 	defaultLLMMode            = commands.InterpretFallback
 	defaultLLMTimeout         = 30 * time.Second
 	defaultLearningFile       = "client/data/learning.json"
+	defaultTextAddr           = "127.0.0.1:8082"
 	defaultLogLevel           = slog.LevelInfo
 	defaultConnectTimeout     = 3 * time.Second
 	defaultOperationTimeout   = 30 * time.Second
@@ -138,7 +141,9 @@ type Config struct {
 	// LogTranscripts logs the recognized text at info level.
 	LogTranscripts bool
 	// LogHTTPAddr is where the last log lines are served, empty for off.
-	LogHTTPAddr      string
+	LogHTTPAddr string
+	// TextAddr is where run accepts text commands, empty for off.
+	TextAddr         string
 	ConnectTimeout   time.Duration
 	OperationTimeout time.Duration
 	// ConfigFile is the YAML file, empty for none.
@@ -181,6 +186,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		OperationTimeout:   defaultOperationTimeout,
 		ConfigFile:         getenv(EnvConfig),
 		LogHTTPAddr:        getenv(EnvLogHTTPAddr),
+		TextAddr:           envOr(getenv, EnvTextAddr, defaultTextAddr),
 		BeepEnabled:        true,
 		Beep:               audio.DefaultBeep,
 		Matching:           commands.DefaultMatching,
@@ -253,6 +259,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.TextVar(&cfg.LogLevel, flagLogLevel, cfg.LogLevel, usage("debug, info, warn or error", EnvLogLevel))
 	fs.BoolVar(&cfg.LogTranscripts, flagLogTranscripts, cfg.LogTranscripts, usage("log what Whisper heard at info level; off, only at debug level", EnvLogTranscripts))
 	fs.StringVar(&cfg.LogHTTPAddr, flagLogHTTPAddr, cfg.LogHTTPAddr, usage("host:port of a read-only web page with the last log lines of run, kept only in memory; 0.0.0.0:8081 for the local network; empty for off", EnvLogHTTPAddr))
+	fs.StringVar(&cfg.TextAddr, flagTextAddr, cfg.TextAddr, usage("host:port where run accepts text commands over HTTP for the text command; empty for off", EnvTextAddr))
 	fs.DurationVar(&cfg.ConnectTimeout, flagConnectTimeout, cfg.ConnectTimeout, usage("maximum time to connect to a voice service", EnvConnectTimeout))
 	fs.DurationVar(&cfg.OperationTimeout, flagOperationTimeout, cfg.OperationTimeout, usage("maximum time for one read or write on a voice service connection", EnvOperationTimeout))
 	fs.StringVar(&cfg.ConfigFile, flagConfig, cfg.ConfigFile, usage("YAML configuration file, for example client/config.yaml; empty for the defaults", EnvConfig))
@@ -280,6 +287,9 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	)
 	if cfg.LogHTTPAddr != "" {
 		errs = append(errs, validateAddr(flagLogHTTPAddr, EnvLogHTTPAddr, cfg.LogHTTPAddr, "0.0.0.0:8081"))
+	}
+	if cfg.TextAddr != "" {
+		errs = append(errs, validateAddr(flagTextAddr, EnvTextAddr, cfg.TextAddr, defaultTextAddr))
 	}
 	if cfg.WakeWordModel == "" {
 		errs = append(errs, fmt.Errorf("--%s (%s) is empty: use a model name, for example %s", flagWakeWordModel, EnvWakeWordModel, defaultWakeWordModel))

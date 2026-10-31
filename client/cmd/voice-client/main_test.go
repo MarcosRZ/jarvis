@@ -2,8 +2,14 @@ package main
 
 import (
 	"context"
+	"io"
+	"log/slog"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"jarvis/client/internal/config"
+	"jarvis/client/internal/textinput"
 )
 
 func noEnv(string) string { return "" }
@@ -66,6 +72,39 @@ func TestRunRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestTextCommand(t *testing.T) {
+	server := textinput.NewServer("", func(_ context.Context, text string) (string, error) {
+		return "reply to " + text, nil
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	httpServer := httptest.NewServer(server)
+	defer httpServer.Close()
+	addr := strings.TrimPrefix(httpServer.URL, "http://")
+	env := func(key string) string {
+		if key == config.EnvTextAddr {
+			return addr
+		}
+		return ""
+	}
+	var stdout, stderr strings.Builder
+	code := run(context.Background(), []string{commandText, "--text", "¿Qué hora es?"}, &stdout, &stderr, env)
+	if code != exitOK {
+		t.Fatalf("exit %d, stderr %q", code, stderr.String())
+	}
+	if stdout.String() != "reply to ¿Qué hora es?\n" {
+		t.Errorf("stdout %q", stdout.String())
+	}
+}
+
+func TestTextCommandWithoutServer(t *testing.T) {
+	code, _, stderr := runCLI(context.Background(), commandText, "--text", "hola", "--text-addr", "127.0.0.1:1")
+	if code != exitError {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if !strings.Contains(stderr, "text input") {
+		t.Errorf("stderr %q", stderr)
+	}
+}
+
 func TestUsageErrors(t *testing.T) {
 	for _, args := range [][]string{nil, {"dance"}} {
 		code, _, stderr := runCLI(context.Background(), args...)
@@ -92,6 +131,8 @@ func TestAudioCommandsRejectInvalidInputBeforeOpeningDevices(t *testing.T) {
 		{commandSay},
 		{commandSay, "--text", "  "},
 		{commandSay, "--text", "Hola", "--tts-voice", ""},
+		{commandText},
+		{commandText, "--text", "  "},
 	}
 	for _, args := range tests {
 		code, _, stderr := runCLI(context.Background(), args...)

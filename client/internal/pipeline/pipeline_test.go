@@ -155,6 +155,76 @@ func TestRunAnswersOneCommand(t *testing.T) {
 	}
 }
 
+func TestRunAnswersTextWithoutWakeWord(t *testing.T) {
+	var handled, said []string
+	waiting := make(chan struct{}, 1)
+	steps := Steps{
+		WaitForWakeWord: func(ctx context.Context) (wakeword.Detection, error) {
+			select {
+			case waiting <- struct{}{}:
+			default:
+			}
+			<-ctx.Done()
+			return wakeword.Detection{}, ctx.Err()
+		},
+		Handle: func(_ context.Context, text string) string {
+			handled = append(handled, text)
+			return "reply to " + text
+		},
+		Say: func(_ context.Context, text string) (tts.Timing, error) {
+			said = append(said, text)
+			return tts.Timing{}, nil
+		},
+		DiscardInput: func() {},
+	}
+	var logs bytes.Buffer
+	p := New(steps, slog.New(slog.NewTextHandler(&logs, nil)))
+	p.LogTranscripts = true
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- p.Run(ctx) }()
+	select {
+	case <-waiting:
+	case <-time.After(time.Second):
+		t.Fatal("the pipeline did not start waiting for the wake word")
+	}
+
+	reply, err := p.Submit(ctx, " ¿Qué hora es? ")
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error %v, want context.Canceled", err)
+	}
+	if reply != "reply to ¿Qué hora es?" || !slices.Equal(handled, []string{"¿Qué hora es?"}) || !slices.Equal(said, []string{"reply to ¿Qué hora es?"}) {
+		t.Fatalf("reply %q, handled %q, said %q", reply, handled, said)
+	}
+	if !strings.Contains(logs.String(), `msg=heard source=text text="¿Qué hora es?"`) {
+		t.Errorf("the text input is not logged as heard:\n%s", logs.String())
+	}
+	want := []string{"LISTENING", "HANDLING_COMMAND", "SPEAKING", "LISTENING", "STOPPED"}
+	if got := states(logs.String()); !slices.Equal(got, want) {
+		t.Errorf("transitions %v, want %v", got, want)
+	}
+}
+
+func TestSubmitAfterRunStops(t *testing.T) {
+	stopped := errors.New("microphone gone")
+	p := New(Steps{
+		WaitForWakeWord: func(context.Context) (wakeword.Detection, error) { return wakeword.Detection{}, stopped },
+		DiscardInput:    func() {},
+	}, slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil)))
+	if err := p.Run(context.Background()); !errors.Is(err, stopped) {
+		t.Fatalf("Run error %v, want %v", err, stopped)
+	}
+	if _, err := p.Submit(context.Background(), "hola"); !errors.Is(err, ErrStopped) {
+		t.Errorf("Submit error %v, want ErrStopped", err)
+	}
+}
+
 func TestRunLogsTranscriptsWhenAsked(t *testing.T) {
 	f := newFake(request{text: " ¿Qué hora es? "}, request{text: ""})
 	var logs bytes.Buffer

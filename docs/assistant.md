@@ -24,6 +24,34 @@ level=INFO msg=state from=SPEAKING to=LISTENING after=1.68s
 
 **No self-hearing.** The wake-word detector runs only in `LISTENING`. When the assistant enters `LISTENING`, it first drops the microphone audio buffered meanwhile (up to 2 s, `audio.Capture.Discard`), so its own voice is never taken as a wake word or a command.
 
+## Text channel
+
+With `--text-addr` (`VOICE_TEXT_ADDR`, default `127.0.0.1:8082`), `run` also accepts text commands. `voice-client text --text "¿Qué hora es?"` sends one and prints the reply:
+
+```text
+$ client/bin/voice-client text --text "¿Qué hora es?"
+Son las 10 y cuarto.
+```
+
+The text skips the wake word and speech recognition and enters the pipeline at `HANDLING_COMMAND`, the same point as a transcription. It uses the same command handler, device allowlist, language model, learning and speaker, and the assistant answers out loud as it does for a voice command. The state log shows `source=text` on the `heard` line and `source=text` on the state change:
+
+```text
+level=INFO msg=state from=LISTENING to=HANDLING_COMMAND after=3s source=text
+level=INFO msg=state from=HANDLING_COMMAND to=SPEAKING after=0s
+```
+
+Both channels stay available. A text command that arrives while the assistant is listening stops the wake-word wait and is handled at once; a text command that arrives while a voice request is in progress waits until that request ends. The wake-word detector is not reading the microphone while a text reply plays, so the assistant does not hear itself.
+
+The endpoint is `POST /text` with a JSON body `{"text": "..."}` and answers `{"reply": "..."}`:
+
+```sh
+curl -sS -X POST http://127.0.0.1:8082/text \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"¿Qué puedes hacer?"}'
+```
+
+The default binds only `127.0.0.1`; use `0.0.0.0:8082` to allow the local network. Like the log page, the endpoint has no login and can control the exposed devices, so use it only in a trusted network. The text is logged like a transcript: at info level only with `--log-transcripts`, otherwise at `debug`. An empty text, a malformed body or a stopped assistant gives a clear HTTP error.
+
 **Errors.** A failed request does not stop the assistant. It speaks a short message and listens again:
 
 | Case | Reply |
