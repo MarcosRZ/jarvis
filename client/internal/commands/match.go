@@ -6,22 +6,17 @@ import (
 	"strings"
 )
 
-// Matching sets how Parse corrects misheard words when the exact match fails.
-// A score is the similarity of how two phrases sound, from 0 to 1.
+// Matching sets how Parse corrects a misheard fixed command when the exact
+// match fails. A score is the similarity of how two phrases sound, from 0 to 1.
 type Matching struct {
 	// Accept is the lowest score of a guess that is used.
 	Accept float64
-	// Suggest is the lowest score of a guess that the reply suggests.
-	Suggest float64
 	// Margin is how much the best guess must beat the next one to be used.
 	Margin float64
 }
 
-// DefaultMatching accepts "udelsalom" for "luz del salón" (0.82) and only
-// suggests "luz de la cocina rm rf" for "luz de la cocina" (0.76). Suggest is
-// above 0.69, the score of a wrong light that shares "luz del" with the right
-// one, measured with the names of the development Home Assistant.
-var DefaultMatching = Matching{Accept: 0.8, Suggest: 0.7, Margin: 0.1}
+// DefaultMatching accepts "que ora es" for "que hora es".
+var DefaultMatching = Matching{Accept: 0.8, Margin: 0.1}
 
 // Correction is one guess for a phrase that did not match exactly.
 type Correction struct {
@@ -69,27 +64,6 @@ func (h *Handler) guessKind(heard string, candidates map[string]Kind) (Kind, *Co
 		return "", nil
 	}
 	return r[0].value, &Correction{Heard: heard, Meant: r[0].key, Score: r[0].score, Used: true}
-}
-
-func (h *Handler) guessDevice(kind Kind, argument string, corrections []Correction) Command {
-	r := rank(argument, h.devices)
-	invalid := Command{Kind: KindInvalid, Argument: argument, Corrections: corrections}
-	if argument == "" || len(r) == 0 || r[0].score < h.matching.Suggest {
-		return invalid
-	}
-	unique := clear(h.matching, r)
-	if unique && r[0].score >= h.matching.Accept {
-		c := Correction{Heard: argument, Meant: r[0].value.Name, Score: r[0].score, Used: true}
-		return Command{Kind: kind, Device: r[0].value, Corrections: append(corrections, c)}
-	}
-	for i, g := range r[:min(2, len(r))] {
-		if i > 0 && (unique || g.score < h.matching.Suggest) {
-			break
-		}
-		invalid.Suggestions = append(invalid.Suggestions, g.value)
-		invalid.Corrections = append(invalid.Corrections, Correction{Heard: argument, Meant: g.value.Name, Score: g.score})
-	}
-	return invalid
 }
 
 // spanishSounds joins letters that sound the same in Spanish. "ch" becomes

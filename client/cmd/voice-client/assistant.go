@@ -63,10 +63,11 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	}
 	handler.UseMatching(cfg.Matching, logger, guessLevel)
 	handler.UseRoom(cfg.Room)
+	handler.UseInference(cfg.LLMOrder, cfg.LLMSafety)
 	if cfg.LLMMode != commands.InterpretOff {
 		interpreter := llm.New(llm.Config{URL: cfg.LLMURL, Timeout: cfg.LLMTimeout, Room: cfg.Room})
 		handler.UseInterpreter(interpreter, cfg.LLMMode)
-		logger.Info("language model", "url", cfg.LLMURL, "mode", cfg.LLMMode, "room", cfg.Room)
+		logger.Info("language model", "url", cfg.LLMURL, "mode", cfg.LLMMode, "safety", cfg.LLMSafety, "order", cfg.LLMOrder, "room", cfg.Room)
 	}
 	limits := recordLimits(cfg)
 	var acknowledge func(context.Context) error
@@ -103,23 +104,41 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 }
 
 // newCommandHandler returns a handler with no devices, or, with --ha-url, one
-// that controls the lights and switches exposed in Home Assistant and reads
-// that list again every deviceRefresh.
+// that controls the lights and switches exposed in Home Assistant, reads that
+// list again every deviceRefresh, and sends every other sentence to the Home
+// Assistant conversation agent.
 func newCommandHandler(ctx context.Context, cfg config.Config, logger *slog.Logger) (*commands.Handler, error) {
 	if cfg.HAURL == "" {
 		return commands.New(time.Now, nil, nil)
 	}
-	ha := homeassistant.New(homeassistant.Config{URL: cfg.HAURL, Token: cfg.HAToken, Timeout: haTimeout})
+	ha := homeassistant.New(homeassistant.Config{
+		URL:                 cfg.HAURL,
+		Token:               cfg.HAToken,
+		Timeout:             haTimeout,
+		ConversationTimeout: cfg.OperationTimeout,
+		Language:            cfg.STTLanguage,
+		AgentID:             cfg.HAAgent,
+	})
 	handler, err := commands.New(time.Now, nil, ha)
 	if err != nil {
 		return nil, err
 	}
 	handler.UseSource(ha, deviceRefresh, func(err error) { logger.Warn("Home Assistant devices", "error", err) })
+	handler.UseActions(nil, ha)
+	handler.UseActionSource(ha, deviceRefresh, func(err error) { logger.Warn("Home Assistant actions", "error", err) })
+	handler.UseConversation(ha)
+	handler.UseContext(ha)
 	if err := handler.Refresh(ctx); err != nil {
 		if errors.Is(err, homeassistant.ErrUnauthorized) {
 			return nil, err
 		}
 		logger.Warn("Home Assistant not available; retrying at the next command", "error", err)
+	}
+	if err := handler.RefreshActions(ctx); err != nil {
+		if errors.Is(err, homeassistant.ErrUnauthorized) {
+			return nil, err
+		}
+		logger.Warn("Home Assistant actions not available; retrying at the next command", "error", err)
 	}
 	names := make([]string, 0)
 	for _, d := range handler.Devices() {
@@ -130,5 +149,6 @@ func newCommandHandler(ctx context.Context, cfg config.Config, logger *slog.Logg
 		}
 	}
 	logger.Info("Home Assistant devices", "url", cfg.HAURL, "count", len(names), "names", strings.Join(names, ", "))
+	logger.Info("Home Assistant actions", "url", cfg.HAURL, "count", len(handler.Actions()))
 	return handler, nil
 }

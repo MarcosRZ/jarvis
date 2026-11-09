@@ -83,6 +83,43 @@ func TestStorePenalize(t *testing.T) {
 	}
 }
 
+func TestStoreLearnsCatalogActions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "learning.json")
+	now := time.Now()
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := store.LearnAction("pon la escena cine", "scene.cine.turn_on", "Activar Cine", now); err != nil {
+		t.Fatalf("LearnAction: %v", err)
+	}
+	e, ok := store.Lookup("pon la escena cine")
+	if !ok || e.Action != "scene.cine.turn_on" || e.Score != 1 || e.Successes != 1 {
+		t.Fatalf("lookup %+v, %v", e, ok)
+	}
+	if _, err := store.LearnAction("pon la escena cine", "scene.cine.turn_on", "Activar Cine", now); err != nil {
+		t.Fatalf("LearnAction again: %v", err)
+	}
+	e, ok = store.Lookup("pon la escena cine")
+	if !ok || e.Score != 2 || e.Successes != 2 {
+		t.Fatalf("second lookup %+v, %v", e, ok)
+	}
+	if _, ok, err := store.PenalizeAction("pon la escena cine", "scene.other.turn_on", now); err != nil || ok {
+		t.Fatalf("wrong action: ok %v, err %v", ok, err)
+	}
+	e, ok, err = store.PenalizeAction("pon la escena cine", "scene.cine.turn_on", now)
+	if err != nil || !ok || e.Score != -1 || e.Failures != 1 {
+		t.Fatalf("PenalizeAction: %+v, %v, %v", e, ok, err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open again: %v", err)
+	}
+	if got, ok := reopened.Lookup("pon la escena cine"); !ok || got.Action != "scene.cine.turn_on" || got.Score != -1 {
+		t.Fatalf("reopened %+v, %v", got, ok)
+	}
+}
+
 func TestStoreRejectsBadFiles(t *testing.T) {
 	if _, err := Open(""); err == nil {
 		t.Error("Open with empty path succeeded")

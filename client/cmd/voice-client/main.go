@@ -26,6 +26,7 @@ const (
 	commandSTTTest     = "stt-test"
 	commandSay         = "say"
 	commandText        = "text"
+	commandActions     = "actions"
 	commandRun         = "run"
 
 	flagDuration = "duration"
@@ -69,7 +70,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return exitOK
 	case commandDevices:
 		return listDevices(stdout, stderr)
-	case commandConfigCheck, commandRun, commandMicTest, commandLoopback, commandWakeTest, commandSTTTest, commandSay, commandText:
+	case commandConfigCheck, commandRun, commandMicTest, commandLoopback, commandWakeTest, commandSTTTest, commandSay, commandText, commandActions:
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n", command)
 		printUsage(stderr)
@@ -137,6 +138,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 		return say(ctx, cfg, lines, stdout, logger)
 	case commandText:
 		return sendTexts(ctx, cfg, lines, stdout, stderr)
+	case commandActions:
+		return generateActions(ctx, cfg, stdout, stderr)
 	}
 	return runAssistant(ctx, cfg, logger)
 }
@@ -157,10 +160,11 @@ commands:
   %-13s wake word, then print the command that Whisper recognizes
   %-13s speak --text with Piper on the output device
   %-13s send --text to a running assistant and print its reply
+  %-13s generate the action catalog of the exposed Home Assistant entities
   %-13s start the assistant
 
 Use "voice-client <command> -h" to see the flags of a command.
-`, commandVersion, commandConfigCheck, commandDevices, commandMicTest, commandLoopback, commandWakeTest, commandSTTTest, commandSay, commandText, commandRun)
+`, commandVersion, commandConfigCheck, commandDevices, commandMicTest, commandLoopback, commandWakeTest, commandSTTTest, commandSay, commandText, commandActions, commandRun)
 }
 
 func beepState(cfg config.Config) string {
@@ -192,10 +196,14 @@ func printConfig(w io.Writer, cfg config.Config) {
 		{"tts-speaker", fmt.Sprintf("%q", cfg.TTSSpeaker)},
 		{"ha-url", fmt.Sprintf("%q", cfg.HAURL)},
 		{"ha-token", tokenState(cfg.HAToken)},
+		{"ha-agent", fmt.Sprintf("%q", cfg.HAAgent)},
 		{"llm-url", fmt.Sprintf("%q", cfg.LLMURL)},
 		{"llm-mode", cfg.LLMMode},
+		{"llm-safety", cfg.LLMSafety},
+		{"llm-order", cfg.LLMOrder},
 		{"llm-timeout", cfg.LLMTimeout},
 		{"room", fmt.Sprintf("%q", cfg.Room)},
+		{"actions-file", fmt.Sprintf("%q", cfg.ActionsFile)},
 		{"log-level", cfg.LogLevel},
 		{"log-transcripts", cfg.LogTranscripts},
 		{"log-http-addr", fmt.Sprintf("%q", cfg.LogHTTPAddr)},
@@ -204,7 +212,7 @@ func printConfig(w io.Writer, cfg config.Config) {
 		{"operation-timeout", cfg.OperationTimeout},
 		{"config", fmt.Sprintf("%q", cfg.ConfigFile)},
 		{"beep", beepState(cfg)},
-		{"matching", fmt.Sprintf("accept %v, suggest %v, margin %v", cfg.Matching.Accept, cfg.Matching.Suggest, cfg.Matching.Margin)},
+		{"matching", fmt.Sprintf("accept %v, margin %v", cfg.Matching.Accept, cfg.Matching.Margin)},
 	}
 	for _, s := range settings {
 		fmt.Fprintf(w, "%-21s %v\n", s.name+":", s.value)

@@ -20,19 +20,23 @@ A flag wins over an environment variable. An environment variable wins over the 
 | `--speech-level` | `VOICE_SPEECH_LEVEL` | `-40` | dBFS, from `-90` to below `0` |
 | `--tts-voice` | `VOICE_TTS_VOICE` | `es_ES-sharvard-medium` | a Piper voice name, not empty |
 | `--tts-speaker` | `VOICE_TTS_SPEAKER` | `F` (female) | a speaker of `--tts-voice`, checked with Piper; `--tts-speaker ""` for a voice with one speaker |
-| `--ha-url` | `VOICE_HA_URL` | empty (no device control) | `http://host:port` or `https://host:port` |
+| `--ha-url` | `VOICE_HA_URL` | empty (no Home Assistant) | `http://host:port` or `https://host:port`; the exposed entities become a safe action catalog, unresolved sentences go to the conversation agent, and exposed states/forecasts become read-only model context |
 | (no flag) | `VOICE_HA_TOKEN` | empty | a Home Assistant long-lived access token; necessary with `--ha-url` |
-| `--llm-url` | `VOICE_LLM_URL` | `http://127.0.0.1:8080` | `http://host:port` or `https://host:port` of the llama.cpp command model; `VOICE_LLM_MODE=off` disables it |
-| `--llm-mode` | `VOICE_LLM_MODE` | `fallback` | `off`, `fallback` (only when the fixed parser fails) or `always` (every single sentence with a candidate device) |
+| `--ha-agent` | `VOICE_HA_AGENT` | empty (Home Assistant default agent) | conversation agent entity ID, for example `conversation.ollama`; it handles sentences that the action catalog does not resolve, and questions |
+| `--llm-url` | `VOICE_LLM_URL` | `http://127.0.0.1:8080` | `http://host:port` or `https://host:port` of the llama.cpp command/grounded-reply model; `VOICE_LLM_MODE=off` disables it |
+| `--llm-mode` | `VOICE_LLM_MODE` | `fallback` | `off` or `fallback` (unresolved sentences) |
+| `--llm-safety` | `VOICE_LLM_SAFETY` | `guard` | `guard` (the named device or catalog entity/action, or a matching physical state), `literal` (any model action) or `states` (only a physical state) |
+| `--llm-order` | `VOICE_LLM_ORDER` | `ha-first` | `ha-first` (Home Assistant before the model) or `model-first` (model before Home Assistant) for an unresolved sentence; a deterministic catalog match always runs first |
 | `--llm-timeout` | `VOICE_LLM_TIMEOUT` | `30s` | Go duration, greater than 0; limit for one model answer |
 | `--room` | `VOICE_ROOM` | empty (unknown) | room where the assistant is, for example `Salon`; lets the model resolve "aquí" and ask about the right light |
 | `--learning-file` | `VOICE_LEARNING_FILE` | `client/data/learning.json` | JSON file with learned sentences and their feedback; `off` turns learning off |
+| `--actions-file` | `VOICE_ACTIONS_FILE` | `client/data/actions.json` | JSON file where `voice-client actions` writes the generated catalog; the directory is git-ignored; the assistant regenerates the catalog at runtime and does not read this file |
 | `--log-level` | `VOICE_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
 | `--log-transcripts` | `VOICE_LOG_TRANSCRIPTS` | `false` | `true` logs what Whisper heard at info level (`msg=heard text=...`); `false` logs it only at `debug` |
 | `--log-http-addr` | `VOICE_LOG_HTTP_ADDR` | empty (off) | `host:port` for the log web page of `run`, for example `0.0.0.0:8081`; not 8080, which is the command model; see [Log web page](assistant.md#log-web-page) |
 | `--text-addr` | `VOICE_TEXT_ADDR` | `127.0.0.1:8082` | `host:port` where `run` accepts text commands for the `text` command; empty turns the channel off; see [Text channel](assistant.md#text-channel) |
 | `--connect-timeout` | `VOICE_CONNECT_TIMEOUT` | `3s` | Go duration, greater than 0 |
-| `--operation-timeout` | `VOICE_OPERATION_TIMEOUT` | `30s` | Go duration, greater than 0; limit for one read or write on a service connection |
+| `--operation-timeout` | `VOICE_OPERATION_TIMEOUT` | `30s` | Go duration, greater than 0; limit for one read or write on a service connection, and for one Home Assistant conversation request |
 | `--config` | `VOICE_CONFIG` | empty (defaults) | path of a YAML configuration file; see "Configuration file" below |
 
 ## Env files
@@ -46,7 +50,7 @@ make run ARGS="--log-level info"  # flags still win over the file
 ```
 
 - `client/.env.dev` is committed and has no secrets. When it has no `VOICE_HA_TOKEN`, `make run` uses the token in `server/homeassistant/dev-token`.
-- `client/.env.prod` is git-ignored. Copy it from `client/.env.prod.example`, set `VOICE_HA_URL` and `VOICE_HA_TOKEN`, and run `chmod 600 client/.env.prod`. The example also enables the local command model and sets `VOICE_ROOM=Salon`: change it to the room where the assistant is, or leave it empty. Set `VOICE_LLM_MODE=off` to use only the fixed parser.
+- `client/.env.prod` is git-ignored. Copy it from `client/.env.prod.example`, set `VOICE_HA_URL` and `VOICE_HA_TOKEN`, and run `chmod 600 client/.env.prod`. The example also enables the local command model and sets `VOICE_ROOM=Salon`: change it to the room where the assistant is, or leave it empty. Set `VOICE_LLM_MODE=off` to turn off the local command model; the deterministic catalog and Home Assistant still handle the exposed devices and questions. Set `VOICE_HA_AGENT` to use a conversation agent other than the default.
 - The settings come only from the file: `make run` first removes the `VOICE_*` variables of your shell, so a development run never uses a production token by mistake.
 - The file is read by the shell (`set -a; . file`): put values with spaces in quotes.
 
@@ -61,8 +65,7 @@ make run ARGS="--log-level info"  # flags still win over the file
 | `wake_word.beep.note_duration` | `70ms` | greater than 0, at most `1s` |
 | `wake_word.beep.fade` | `8ms` | 0 to half of `note_duration` |
 | `wake_word.beep.level` | `-14` | peak in dBFS, from -60 to below 0 |
-| `commands.matching.accept` | `0.8` | score greater than 0, at most 1; 1 uses only names that sound the same |
-| `commands.matching.suggest` | `0.7` | score greater than 0, at most `accept` |
+| `commands.matching.accept` | `0.8` | score greater than 0, at most 1; 1 uses only fixed commands that sound the same |
 | `commands.matching.margin` | `0.1` | from 0 to below 1 |
 
 An invalid configuration stops the client before it starts and shows each bad value with its flag and variable name:

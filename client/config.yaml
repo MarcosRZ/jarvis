@@ -22,12 +22,9 @@ commands:
   # A score is how alike two phrases sound, from 0 to 1. The log line
   # "msg=guess" shows each guess and its score (with --log-transcripts).
   matching:
-    # A guess with this score or more is used. 1 uses only names that sound
-    # exactly the same ("salom" for "salón").
+    # A guess with this score or more is used in a fixed command. 1 accepts
+    # only phrases that sound exactly the same.
     accept: 0.8
-    # A device guess with this score or more, but below accept, is only
-    # suggested: "¿Querías decir la luz del salón?". At most accept.
-    suggest: 0.7
-    # The best guess must beat the next one by this much to be used, so that
-    # "luz del sa..." never picks one of two similar lights. From 0 to below 1.
+    # The best guess must beat the next one by this much to be used. From 0 to
+    # below 1.
     margin: 0.1

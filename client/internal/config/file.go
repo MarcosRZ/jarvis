@@ -36,9 +36,8 @@ type file struct {
 	} `yaml:"wake_word"`
 	Commands struct {
 		Matching struct {
-			Accept  *float64 `yaml:"accept"`
-			Suggest *float64 `yaml:"suggest"`
-			Margin  *float64 `yaml:"margin"`
+			Accept *float64 `yaml:"accept"`
+			Margin *float64 `yaml:"margin"`
 		} `yaml:"matching"`
 	} `yaml:"commands"`
 }
@@ -77,7 +76,7 @@ func loadFile(path string, cfg *Config) error {
 	for _, v := range []struct {
 		value  *float64
 		target *float64
-	}{{m.Accept, &cfg.Matching.Accept}, {m.Suggest, &cfg.Matching.Suggest}, {m.Margin, &cfg.Matching.Margin}} {
+	}{{m.Accept, &cfg.Matching.Accept}, {m.Margin, &cfg.Matching.Margin}} {
 		if v.value != nil {
 			*v.target = *v.value
 		}
@@ -85,9 +84,6 @@ func loadFile(path string, cfg *Config) error {
 	match := cfg.Matching
 	if !(match.Accept > 0 && match.Accept <= 1) {
 		badMatching("accept", match.Accept, "use a score greater than 0 and at most 1; 1 accepts only names that sound the same")
-	}
-	if !(match.Suggest > 0 && match.Suggest <= match.Accept) {
-		badMatching("suggest", match.Suggest, fmt.Sprintf("use a score greater than 0 and at most accept (%v)", match.Accept))
 	}
 	if !(match.Margin >= 0 && match.Margin < 1) {
 		badMatching("margin", match.Margin, "use a value from 0 to below 1")

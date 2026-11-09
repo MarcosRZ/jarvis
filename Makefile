@@ -16,7 +16,7 @@ LLM_MODEL_URL := https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/
 ENV := dev
 ENV_FILE := $(CLIENT_DIR)/.env.$(ENV)
 
-.PHONY: build test integration lint clean services-up services-down services-status services-logs llm-model ha-up ha-down ha-reset run windows
+.PHONY: build test integration lint clean services-up services-down services-status services-logs llm-model ha-up ha-down ha-reset run actions windows
 
 build:
 	cd $(CLIENT_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o bin/$(BINARY) ./cmd/voice-client
@@ -89,3 +89,14 @@ run: build
 		VOICE_HA_TOKEN="$$(cat $(HA_TOKEN_FILE))"; export VOICE_HA_TOKEN; \
 	fi; \
 	exec $(BIN_DIR)/$(BINARY) run $(ARGS)
+
+# Generates and prints the action catalog from the exposed Home Assistant
+# entities, with the same env file as "make run". ARGS adds flags.
+actions: build
+	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) is missing; copy it from $(ENV_FILE).example"; exit 1; }
+	@unset $$(env | sed -n 's/^\(VOICE_[A-Z_]*\)=.*/\1/p'); \
+	set -a; . ./$(ENV_FILE); set +a; \
+	if [ "$(ENV)" = dev ] && [ -z "$${VOICE_HA_TOKEN:-}" ] && [ -f $(HA_TOKEN_FILE) ]; then \
+		VOICE_HA_TOKEN="$$(cat $(HA_TOKEN_FILE))"; export VOICE_HA_TOKEN; \
+	fi; \
+	exec $(BIN_DIR)/$(BINARY) actions $(ARGS)

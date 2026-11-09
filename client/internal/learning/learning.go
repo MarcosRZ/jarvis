@@ -13,13 +13,15 @@ import (
 	"time"
 )
 
-// Entry is one learned sentence. Text is normalized by the caller, and Kind is
-// the command kind ("turn-on" or "turn-off").
+// Entry is one learned sentence. Text is normalized by the caller. An entry
+// names either a device and its Kind ("turn-on" or "turn-off") or one action of
+// the generated catalog, for example "scene.cine.turn_on".
 type Entry struct {
 	Text      string    `json:"text"`
-	Device    string    `json:"device"`
+	Device    string    `json:"device,omitempty"`
 	Name      string    `json:"name,omitempty"`
-	Kind      string    `json:"kind"`
+	Kind      string    `json:"kind,omitempty"`
+	Action    string    `json:"action,omitempty"`
 	Score     int       `json:"score"`
 	Successes int       `json:"successes"`
 	Failures  int       `json:"failures"`
@@ -87,11 +89,23 @@ func (s *Store) Lookup(text string) (Entry, bool) {
 // one success and one point; a different action replaces the association and
 // starts again at one point.
 func (s *Store) Learn(text, device, name, kind string, now time.Time) (Entry, error) {
+	return s.learn(text, Entry{Device: device, Name: name, Kind: kind}, now)
+}
+
+// LearnAction records that text ran one generated catalog action successfully.
+func (s *Store) LearnAction(text, action, name string, now time.Time) (Entry, error) {
+	return s.learn(text, Entry{Action: action, Name: name}, now)
+}
+
+func (s *Store) learn(text string, want Entry, now time.Time) (Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[text]
-	if !ok || e.Device != device || e.Kind != kind {
-		e = Entry{Text: text, Device: device, Name: name, Kind: kind, Score: 1, Successes: 1}
+	if !ok || e.Device != want.Device || e.Kind != want.Kind || e.Action != want.Action {
+		e = want
+		e.Text = text
+		e.Score = 1
+		e.Successes = 1
 	} else {
 		e.Score++
 		e.Successes++
@@ -105,10 +119,19 @@ func (s *Store) Learn(text, device, name, kind string, now time.Time) (Entry, er
 // counted at execution time and sets the score to -1, so even a long success
 // streak cannot keep a punished action in use.
 func (s *Store) Penalize(text, device, kind string, now time.Time) (Entry, bool, error) {
+	return s.penalize(text, Entry{Device: device, Kind: kind}, now)
+}
+
+// PenalizeAction is Penalize for a generated catalog action.
+func (s *Store) PenalizeAction(text, action string, now time.Time) (Entry, bool, error) {
+	return s.penalize(text, Entry{Action: action}, now)
+}
+
+func (s *Store) penalize(text string, want Entry, now time.Time) (Entry, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[text]
-	if !ok || e.Device != device || e.Kind != kind {
+	if !ok || e.Device != want.Device || e.Kind != want.Kind || e.Action != want.Action {
 		return Entry{}, false, nil
 	}
 	e.Failures++

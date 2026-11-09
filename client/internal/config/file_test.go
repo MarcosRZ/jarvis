@@ -51,16 +51,16 @@ func TestLoadFileSetsMatching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	want := commands.Matching{Accept: 0.9, Suggest: commands.DefaultMatching.Suggest, Margin: 0.2}
+	want := commands.Matching{Accept: 0.9, Margin: 0.2}
 	if cfg.Matching != want {
 		t.Errorf("matching %+v, want %+v", cfg.Matching, want)
 	}
 }
 
 func TestLoadFileRejectsBadMatching(t *testing.T) {
-	path := writeFile(t, "commands:\n  matching:\n    accept: 1.5\n    suggest: 0\n    margin: -0.1\n")
+	path := writeFile(t, "commands:\n  matching:\n    accept: 1.5\n    margin: -0.1\n")
 	_, err := load([]string{"--config", path}, envFrom(nil), io.Discard)
-	for _, w := range []string{"commands.matching.accept 1.5", "commands.matching.suggest 0", "commands.matching.margin -0.1"} {
+	for _, w := range []string{"commands.matching.accept 1.5", "commands.matching.margin -0.1"} {
 		if err == nil || !strings.Contains(err.Error(), w) {
 			t.Errorf("error %v has no %q", err, w)
 		}

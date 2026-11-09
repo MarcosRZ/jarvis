@@ -90,6 +90,55 @@ func TestInterpret(t *testing.T) {
 	}
 }
 
+func TestInterpretContextReturnsReply(t *testing.T) {
+	requests := make(chan request, 1)
+	srv := testServer(t, `{"commands":[],"reply":"Hay un 70 % de probabilidad de lluvia."}`, requests)
+	c := New(Config{URL: srv.URL, Timeout: time.Second})
+	devices := []commands.Device{{ID: "light.kitchen", Name: "la luz de la cocina"}}
+
+	got, err := c.InterpretContext(context.Background(), "¿Va a llover?", devices, "weather.forecast_casa: rain")
+	if err != nil {
+		t.Fatalf("InterpretContext: %v", err)
+	}
+	if len(got.Commands) != 0 || got.Reply != "Hay un 70 % de probabilidad de lluvia." {
+		t.Errorf("interpretation %+v", got)
+	}
+
+	req := <-requests
+	if req.MaxTokens != maxContextTokens {
+		t.Errorf("max tokens %d, want %d", req.MaxTokens, maxContextTokens)
+	}
+	system := req.Messages[0].Content
+	for _, want := range []string{"weather.forecast_casa: rain", `"reply"`, "Spanish voice assistant"} {
+		if !strings.Contains(system, want) {
+			t.Errorf("system prompt does not contain %q:\n%s", want, system)
+		}
+	}
+	schema, err := json.Marshal(req.ResponseFormat.JSONSchema.Schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"reply"`, `"maxLength":600`} {
+		if !strings.Contains(string(schema), want) {
+			t.Errorf("schema does not contain %s:\n%s", want, schema)
+		}
+	}
+}
+
+func TestInterpretContextReturnsCommands(t *testing.T) {
+	srv := testServer(t, `{"commands":[{"action":"turn_off","device":"light.kitchen"}],"reply":""}`, nil)
+	c := New(Config{URL: srv.URL, Timeout: time.Second})
+	devices := []commands.Device{{ID: "light.kitchen", Name: "la luz de la cocina"}}
+
+	got, err := c.InterpretContext(context.Background(), "apaga la luz", devices, "light.kitchen: on")
+	if err != nil {
+		t.Fatalf("InterpretContext: %v", err)
+	}
+	if len(got.Commands) != 1 || got.Commands[0].Kind != commands.KindTurnOff || got.Reply != "" {
+		t.Errorf("interpretation %+v", got)
+	}
+}
+
 func TestInterpretAnswers(t *testing.T) {
 	devices := []commands.Device{{ID: "light.kitchen", Name: "la luz de la cocina"}}
 	tests := []struct {

@@ -1,5 +1,7 @@
 // Package homeassistant reads the devices exposed to voice assistants in Home
-// Assistant and switches them on and off. It implements commands.DeviceController.
+// Assistant, switches lights and switches, and forwards any other sentence to
+// the Home Assistant conversation agent. It implements commands.DeviceController
+// and commands.Conversation.
 package homeassistant
 
 import (
@@ -11,7 +13,6 @@ import (
 	"io"
 	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -39,16 +40,33 @@ type Config struct {
 	URL     string
 	Token   string
 	Timeout time.Duration
+	// ConversationTimeout bounds a conversation request. An LLM agent can take
+	// longer than a light call. Zero uses Timeout.
+	ConversationTimeout time.Duration
+	// Language is the language of the conversation input, for example "es".
+	// Empty uses the Home Assistant server language.
+	Language string
+	// AgentID selects a conversation agent, for example "conversation.ollama".
+	// Empty uses the Home Assistant default agent.
+	AgentID string
 }
 
 type Client struct {
-	cfg  Config
-	http *http.Client
+	cfg              Config
+	http             *http.Client
+	conversationHTTP *http.Client
 }
 
 func New(cfg Config) *Client {
 	cfg.URL = strings.TrimRight(cfg.URL, "/")
-	return &Client{cfg: cfg, http: &http.Client{Timeout: cfg.Timeout}}
+	if cfg.ConversationTimeout <= 0 {
+		cfg.ConversationTimeout = cfg.Timeout
+	}
+	return &Client{
+		cfg:              cfg,
+		http:             &http.Client{Timeout: cfg.Timeout},
+		conversationHTTP: &http.Client{Timeout: cfg.ConversationTimeout},
+	}
 }
 
 // Devices returns the lights and switches exposed to the Home Assistant voice
@@ -56,34 +74,11 @@ func New(cfg Config) *Client {
 // with spaces when there is none. A device in the state "unavailable" is in
 // the list, marked Unavailable.
 func (c *Client) Devices(ctx context.Context) ([]commands.Device, error) {
-	exposed, err := c.exposedEntities(ctx)
+	entities, err := c.Entities(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var states []struct {
-		EntityID   string `json:"entity_id"`
-		State      string `json:"state"`
-		Attributes struct {
-			FriendlyName string `json:"friendly_name"`
-		} `json:"attributes"`
-	}
-	if err := c.rest(ctx, http.MethodGet, "/api/states", nil, &states); err != nil {
-		return nil, err
-	}
-	var devices []commands.Device
-	for _, s := range states {
-		m := entityID.FindStringSubmatch(s.EntityID)
-		if m == nil || !powerDomains[m[1]] || !exposed[s.EntityID][assistant] {
-			continue
-		}
-		name := strings.TrimSpace(s.Attributes.FriendlyName)
-		if name == "" {
-			name = strings.ReplaceAll(m[2], "_", " ")
-		}
-		devices = append(devices, commands.Device{ID: s.EntityID, Name: name, Unavailable: s.State == "unavailable"})
-	}
-	slices.SortFunc(devices, func(a, b commands.Device) int { return strings.Compare(a.Name, b.Name) })
-	return devices, nil
+	return powerDevices(entities), nil
 }
 
 // SetPower calls the turn_on or turn_off service of the entity. It accepts
@@ -99,6 +94,44 @@ func (c *Client) SetPower(ctx context.Context, id string, on bool) error {
 	}
 	body := map[string]string{"entity_id": id}
 	return c.rest(ctx, http.MethodPost, "/api/services/"+m[1]+"/"+service, body, nil)
+}
+
+// Converse sends text to the Home Assistant conversation agent. handled is
+// false when the agent did not understand the sentence, so the caller can use
+// its own fallback. The agent controls any entity exposed to it, not only the
+// lights and switches of Devices.
+func (c *Client) Converse(ctx context.Context, text string) (string, bool, error) {
+	body := map[string]any{"text": text}
+	if c.cfg.Language != "" {
+		body["language"] = c.cfg.Language
+	}
+	if c.cfg.AgentID != "" {
+		body["agent_id"] = c.cfg.AgentID
+	}
+	var result struct {
+		Response struct {
+			ResponseType string `json:"response_type"`
+			Speech       struct {
+				Plain struct {
+					Speech string `json:"speech"`
+				} `json:"plain"`
+			} `json:"speech"`
+		} `json:"response"`
+	}
+	if err := c.restWith(ctx, c.conversationHTTP, http.MethodPost, "/api/conversation/process", body, &result); err != nil {
+		return "", false, err
+	}
+	if result.Response.ResponseType == "error" {
+		return "", false, nil
+	}
+	speech := strings.TrimSpace(result.Response.Speech.Plain.Speech)
+	if speech == "" {
+		if result.Response.ResponseType == "action_done" {
+			return commands.ReplyDone, true, nil
+		}
+		return "", false, nil
+	}
+	return speech, true, nil
 }
 
 func (c *Client) exposedEntities(ctx context.Context) (map[string]map[string]bool, error) {
@@ -117,6 +150,10 @@ func (c *Client) exposedEntities(ctx context.Context) (map[string]map[string]boo
 }
 
 func (c *Client) rest(ctx context.Context, method, path string, body, out any) error {
+	return c.restWith(ctx, c.http, method, path, body, out)
+}
+
+func (c *Client) restWith(ctx context.Context, client *http.Client, method, path string, body, out any) error {
 	var reader io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -131,7 +168,7 @@ func (c *Client) rest(ctx context.Context, method, path string, body, out any) e
 	}
 	req.Header.Set("Authorization", "Bearer "+c.cfg.Token)
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("Home Assistant %s %s: %w", method, path, err)
 	}

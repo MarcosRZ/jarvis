@@ -27,13 +27,18 @@ type state struct {
 
 // fakeHA serves the parts of the Home Assistant API that the client uses.
 type fakeHA struct {
-	mu       sync.Mutex
-	states   []state
-	exposed  map[string]map[string]bool
-	calls    []string
-	bodies   []map[string]any
-	failCall bool
-	wsAuth   string
+	mu             sync.Mutex
+	states         []state
+	exposed        map[string]map[string]bool
+	calls          []string
+	bodies         []map[string]any
+	failCall       bool
+	wsAuth         string
+	conversation   map[string]any
+	conversationAt []map[string]any
+	converseDelay  time.Duration
+	failConverse   bool
+	forecasts      map[string]any
 }
 
 func named(id, name string) state {
@@ -58,15 +63,52 @@ func (f *fakeHA) start(t *testing.T) string {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.mu.Lock()
+		forecasts := f.forecasts
 		f.calls = append(f.calls, r.PathValue("domain")+"/"+r.PathValue("service"))
 		f.bodies = append(f.bodies, body)
 		fail := f.failCall
 		f.mu.Unlock()
+		if r.PathValue("domain") == "weather" && r.PathValue("service") == "get_forecasts" {
+			if forecasts == nil {
+				http.Error(w, "no forecast", http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(forecasts)
+			return
+		}
 		if fail {
 			http.Error(w, "boom", http.StatusInternalServerError)
 			return
 		}
 		_, _ = w.Write([]byte("[]"))
+	})
+	mux.HandleFunc("POST /api/conversation/process", func(w http.ResponseWriter, r *http.Request) {
+		if !authorized(w, r) {
+			return
+		}
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.conversationAt = append(f.conversationAt, body)
+		response := f.conversation
+		fail := f.failConverse
+		f.mu.Unlock()
+		if fail {
+			http.Error(w, "boom", http.StatusInternalServerError)
+			return
+		}
+		if delay := f.converseDelay; delay > 0 {
+			time.Sleep(delay)
+		}
+		if response == nil {
+			response = map[string]any{
+				"response": map[string]any{
+					"response_type": "action_done",
+					"speech":        map[string]any{"plain": map[string]any{"speech": "Hecho."}},
+				},
+			}
+		}
+		_ = json.NewEncoder(w).Encode(response)
 	})
 	mux.HandleFunc("GET /api/websocket", f.websocket)
 	srv := httptest.NewServer(mux)
@@ -177,6 +219,66 @@ func TestDevicesServiceUnavailable(t *testing.T) {
 	}
 }
 
+func TestContextIncludesExposedStatesAndWeatherForecast(t *testing.T) {
+	f := &fakeHA{
+		states: []state{
+			named("light.kitchen", "La luz de la cocina"),
+			{
+				EntityID: "weather.forecast_casa",
+				State:    "partlycloudy",
+				Attributes: map[string]any{
+					"friendly_name": "Forecast Casa",
+					"temperature":   9.2,
+					"humidity":      91,
+				},
+			},
+			named("lock.door", "La puerta"),
+		},
+		exposed: map[string]map[string]bool{
+			"light.kitchen":         {"conversation": true},
+			"weather.forecast_casa": {"conversation": true},
+			"lock.door":             {"cloud.alexa": true},
+		},
+		forecasts: map[string]any{
+			"service_response": map[string]any{
+				"weather.forecast_casa": map[string]any{
+					"forecast": []any{
+						map[string]any{
+							"datetime":                  "2026-11-03T22:00:00+00:00",
+							"condition":                 "rainy",
+							"temperature":               9.2,
+							"precipitation":             0.4,
+							"precipitation_probability": 70,
+						},
+					},
+				},
+			},
+		},
+	}
+	context, err := newClient(f.start(t)).Context(context.Background())
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	for _, want := range []string{
+		"light.kitchen (La luz de la cocina): off",
+		"weather.forecast_casa (Forecast Casa): parcialmente nublado",
+		"temperature 9.2",
+		"forecast hourly",
+		"lluvioso",
+		"70 %",
+	} {
+		if !strings.Contains(context, want) {
+			t.Errorf("context does not contain %q:\n%s", want, context)
+		}
+	}
+	if strings.Contains(context, "lock.door") {
+		t.Errorf("context contains an unexposed entity:\n%s", context)
+	}
+	if !slices.Contains(f.calls, "weather/get_forecasts") {
+		t.Errorf("calls %v, want weather/get_forecasts", f.calls)
+	}
+}
+
 func TestSetPower(t *testing.T) {
 	f := &fakeHA{}
 	c := newClient(f.start(t))
@@ -219,6 +321,93 @@ func TestSetPowerReportsServiceError(t *testing.T) {
 func TestSetPowerRejectsBadToken(t *testing.T) {
 	c := New(Config{URL: (&fakeHA{}).start(t), Token: "wrong", Timeout: time.Second})
 	if err := c.SetPower(context.Background(), "light.kitchen", true); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("error %v, want ErrUnauthorized", err)
+	}
+}
+
+func conversation(answerType, speech string) map[string]any {
+	return map[string]any{
+		"response": map[string]any{
+			"response_type": answerType,
+			"speech":        map[string]any{"plain": map[string]any{"speech": speech}},
+		},
+	}
+}
+
+func TestConverseUsesTheHomeAssistantAgent(t *testing.T) {
+	f := &fakeHA{conversation: conversation("query_answer", "Hace 21 grados y está despejado.")}
+	c := New(Config{
+		URL:      f.start(t),
+		Token:    testToken,
+		Timeout:  time.Second,
+		Language: "es",
+		AgentID:  "conversation.test",
+	})
+	reply, handled, err := c.Converse(context.Background(), "¿Qué tiempo hace?")
+	if err != nil {
+		t.Fatalf("Converse: %v", err)
+	}
+	if !handled || reply != "Hace 21 grados y está despejado." {
+		t.Fatalf("reply %q, handled %v", reply, handled)
+	}
+	if len(f.conversationAt) != 1 {
+		t.Fatalf("conversation calls %v", f.conversationAt)
+	}
+	body := f.conversationAt[0]
+	if body["text"] != "¿Qué tiempo hace?" || body["language"] != "es" || body["agent_id"] != "conversation.test" {
+		t.Errorf("body %v", body)
+	}
+}
+
+func TestConverseWithoutLanguageOrAgent(t *testing.T) {
+	f := &fakeHA{}
+	if _, _, err := newClient(f.start(t)).Converse(context.Background(), "abre la persiana"); err != nil {
+		t.Fatalf("Converse: %v", err)
+	}
+	body := f.conversationAt[0]
+	if _, ok := body["language"]; ok {
+		t.Errorf("body %v has a language", body)
+	}
+	if _, ok := body["agent_id"]; ok {
+		t.Errorf("body %v has an agent_id", body)
+	}
+}
+
+func TestConverseDoesNotHandleAnErrorResponse(t *testing.T) {
+	f := &fakeHA{conversation: conversation("error", "No te he entendido.")}
+	reply, handled, err := newClient(f.start(t)).Converse(context.Background(), "hola")
+	if err != nil || handled || reply != "" {
+		t.Fatalf("reply %q, handled %v, error %v", reply, handled, err)
+	}
+}
+
+func TestConverseUsesTheDefaultReplyForAnEmptyAction(t *testing.T) {
+	f := &fakeHA{conversation: conversation("action_done", "")}
+	reply, handled, err := newClient(f.start(t)).Converse(context.Background(), "abre la persiana")
+	if err != nil || !handled || reply != commands.ReplyDone {
+		t.Fatalf("reply %q, handled %v, error %v", reply, handled, err)
+	}
+}
+
+func TestConverseUsesItsOwnTimeout(t *testing.T) {
+	f := &fakeHA{converseDelay: 100 * time.Millisecond}
+	c := New(Config{URL: f.start(t), Token: testToken, Timeout: time.Second, ConversationTimeout: 10 * time.Millisecond})
+	if _, _, err := c.Converse(context.Background(), "abre la persiana"); err == nil {
+		t.Fatal("Converse returned no timeout error")
+	}
+}
+
+func TestConverseReportsServiceError(t *testing.T) {
+	f := &fakeHA{failConverse: true}
+	_, _, err := newClient(f.start(t)).Converse(context.Background(), "abre la persiana")
+	if err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("error %v, want the HTTP status", err)
+	}
+}
+
+func TestConverseRejectsBadToken(t *testing.T) {
+	c := New(Config{URL: (&fakeHA{}).start(t), Token: "wrong", Timeout: time.Second})
+	if _, _, err := c.Converse(context.Background(), "abre la persiana"); !errors.Is(err, ErrUnauthorized) {
 		t.Fatalf("error %v, want ErrUnauthorized", err)
 	}
 }

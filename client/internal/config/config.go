@@ -37,11 +37,15 @@ const (
 	EnvHAURL              = "VOICE_HA_URL"
 	// EnvHAToken has no flag, so that the token is not in the process list.
 	EnvHAToken          = "VOICE_HA_TOKEN"
+	EnvHAAgent          = "VOICE_HA_AGENT"
 	EnvLLMURL           = "VOICE_LLM_URL"
 	EnvLLMMode          = "VOICE_LLM_MODE"
+	EnvLLMSafety        = "VOICE_LLM_SAFETY"
+	EnvLLMOrder         = "VOICE_LLM_ORDER"
 	EnvLLMTimeout       = "VOICE_LLM_TIMEOUT"
 	EnvRoom             = "VOICE_ROOM"
 	EnvLearningFile     = "VOICE_LEARNING_FILE"
+	EnvActionsFile      = "VOICE_ACTIONS_FILE"
 	EnvLogLevel         = "VOICE_LOG_LEVEL"
 	EnvConnectTimeout   = "VOICE_CONNECT_TIMEOUT"
 	EnvOperationTimeout = "VOICE_OPERATION_TIMEOUT"
@@ -65,11 +69,15 @@ const (
 	flagTTSVoice           = "tts-voice"
 	flagTTSSpeaker         = "tts-speaker"
 	flagHAURL              = "ha-url"
+	flagHAAgent            = "ha-agent"
 	flagLLMURL             = "llm-url"
 	flagLLMMode            = "llm-mode"
+	flagLLMSafety          = "llm-safety"
+	flagLLMOrder           = "llm-order"
 	flagLLMTimeout         = "llm-timeout"
 	flagRoom               = "room"
 	flagLearningFile       = "learning-file"
+	flagActionsFile        = "actions-file"
 	flagLogLevel           = "log-level"
 	flagConnectTimeout     = "connect-timeout"
 	flagOperationTimeout   = "operation-timeout"
@@ -92,8 +100,11 @@ const (
 	defaultTTSSpeaker         = "F"
 	defaultLLMURL             = "http://127.0.0.1:8080"
 	defaultLLMMode            = commands.InterpretFallback
+	defaultLLMSafety          = commands.ActionGuard
+	defaultLLMOrder           = commands.FallbackHAFirst
 	defaultLLMTimeout         = 30 * time.Second
 	defaultLearningFile       = "client/data/learning.json"
+	defaultActionsFile        = "client/data/actions.json"
 	defaultTextAddr           = "127.0.0.1:8082"
 	defaultLogLevel           = slog.LevelInfo
 	defaultConnectTimeout     = 3 * time.Second
@@ -127,9 +138,14 @@ type Config struct {
 	// HAURL is empty when no Home Assistant is used.
 	HAURL   string
 	HAToken string
+	// HAAgent selects the Home Assistant conversation agent. Empty uses its
+	// default agent.
+	HAAgent string
 	// LLMURL is empty when no language-model interpreter is used.
 	LLMURL     string
 	LLMMode    commands.InterpretMode
+	LLMSafety  commands.ActionSafety
+	LLMOrder   commands.FallbackOrder
 	LLMTimeout time.Duration
 	// Room is where the assistant is, so that "aquí" has a meaning. Empty when
 	// unknown.
@@ -137,7 +153,9 @@ type Config struct {
 	// LearningFile keeps the learned sentences and their feedback. Empty turns
 	// learning off.
 	LearningFile string
-	LogLevel     slog.Level
+	// ActionsFile is where the actions command writes the generated catalog.
+	ActionsFile string
+	LogLevel    slog.Level
 	// LogTranscripts logs the recognized text at info level.
 	LogTranscripts bool
 	// LogHTTPAddr is where the last log lines are served, empty for off.
@@ -150,7 +168,7 @@ type Config struct {
 	ConfigFile  string
 	BeepEnabled bool
 	Beep        audio.Beep
-	// Matching sets how misheard device names and commands are corrected.
+	// Matching sets how misheard fixed commands are corrected.
 	Matching commands.Matching
 }
 
@@ -176,11 +194,15 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		TTSSpeaker:         envOr(getenv, EnvTTSSpeaker, defaultTTSSpeaker),
 		HAURL:              getenv(EnvHAURL),
 		HAToken:            getenv(EnvHAToken),
+		HAAgent:            strings.TrimSpace(getenv(EnvHAAgent)),
 		LLMURL:             envOr(getenv, EnvLLMURL, defaultLLMURL),
 		LLMMode:            commands.InterpretMode(envOr(getenv, EnvLLMMode, string(defaultLLMMode))),
+		LLMSafety:          commands.ActionSafety(envOr(getenv, EnvLLMSafety, string(defaultLLMSafety))),
+		LLMOrder:           commands.FallbackOrder(envOr(getenv, EnvLLMOrder, string(defaultLLMOrder))),
 		LLMTimeout:         defaultLLMTimeout,
 		Room:               strings.TrimSpace(getenv(EnvRoom)),
 		LearningFile:       envOr(getenv, EnvLearningFile, defaultLearningFile),
+		ActionsFile:        envOr(getenv, EnvActionsFile, defaultActionsFile),
 		LogLevel:           defaultLogLevel,
 		ConnectTimeout:     defaultConnectTimeout,
 		OperationTimeout:   defaultOperationTimeout,
@@ -250,12 +272,18 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.StringVar(&cfg.TTSVoice, flagTTSVoice, cfg.TTSVoice, usage("Piper voice for spoken responses; Piper downloads it on first use", EnvTTSVoice))
 	fs.StringVar(&cfg.TTSSpeaker, flagTTSSpeaker, cfg.TTSSpeaker, usage("speaker of a Piper voice with several speakers, empty for its default", EnvTTSSpeaker))
 	fs.StringVar(&cfg.HAURL, flagHAURL, cfg.HAURL, usage("Home Assistant URL, for example http://127.0.0.1:8123; empty for no device control; the token is "+EnvHAToken, EnvHAURL))
+	fs.StringVar(&cfg.HAAgent, flagHAAgent, cfg.HAAgent, usage("Home Assistant conversation agent for other devices and questions, for example conversation.ollama; empty for the default agent", EnvHAAgent))
 	fs.StringVar(&cfg.LLMURL, flagLLMURL, cfg.LLMURL, usage("llama.cpp URL, for example http://127.0.0.1:8080; empty for no language model", EnvLLMURL))
 	llmMode := string(cfg.LLMMode)
-	fs.StringVar(&llmMode, flagLLMMode, llmMode, usage("off, fallback (only when the fixed parser fails) or always", EnvLLMMode))
+	fs.StringVar(&llmMode, flagLLMMode, llmMode, usage("off or fallback (unresolved sentences)", EnvLLMMode))
+	llmSafety := string(cfg.LLMSafety)
+	fs.StringVar(&llmSafety, flagLLMSafety, llmSafety, usage("guard (only plausible actions), literal (any model action) or states (only physical states)", EnvLLMSafety))
+	llmOrder := string(cfg.LLMOrder)
+	fs.StringVar(&llmOrder, flagLLMOrder, llmOrder, usage("ha-first (Home Assistant before the model) or model-first (model before Home Assistant)", EnvLLMOrder))
 	fs.DurationVar(&cfg.LLMTimeout, flagLLMTimeout, cfg.LLMTimeout, usage("maximum time for one language-model answer", EnvLLMTimeout))
 	fs.StringVar(&cfg.Room, flagRoom, cfg.Room, usage(`room where the assistant is, so that "aquí" means that room, for example Salón; empty when unknown`, EnvRoom))
 	fs.StringVar(&cfg.LearningFile, flagLearningFile, cfg.LearningFile, usage("JSON file for learned sentences and their feedback; empty to turn learning off", EnvLearningFile))
+	fs.StringVar(&cfg.ActionsFile, flagActionsFile, cfg.ActionsFile, usage("JSON file where the actions command writes the generated action catalog", EnvActionsFile))
 	fs.TextVar(&cfg.LogLevel, flagLogLevel, cfg.LogLevel, usage("debug, info, warn or error", EnvLogLevel))
 	fs.BoolVar(&cfg.LogTranscripts, flagLogTranscripts, cfg.LogTranscripts, usage("log what Whisper heard at info level; off, only at debug level", EnvLogTranscripts))
 	fs.StringVar(&cfg.LogHTTPAddr, flagLogHTTPAddr, cfg.LogHTTPAddr, usage("host:port of a read-only web page with the last log lines of run, kept only in memory; 0.0.0.0:8081 for the local network; empty for off", EnvLogHTTPAddr))
@@ -270,14 +298,26 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		errs = append(errs, fmt.Errorf("unexpected argument %q", fs.Arg(0)))
 	}
 	cfg.Room = strings.TrimSpace(cfg.Room)
+	cfg.HAAgent = strings.TrimSpace(cfg.HAAgent)
 	cfg.LearningFile = strings.TrimSpace(cfg.LearningFile)
+	cfg.ActionsFile = strings.TrimSpace(cfg.ActionsFile)
 	if strings.EqualFold(cfg.LearningFile, "off") || strings.EqualFold(cfg.LearningFile, "none") {
 		cfg.LearningFile = ""
 	}
 	if mode := commands.InterpretMode(llmMode); !mode.Valid() {
-		errs = append(errs, fmt.Errorf("--%s (%s) %q: use off, fallback or always", flagLLMMode, EnvLLMMode, llmMode))
+		errs = append(errs, fmt.Errorf("--%s (%s) %q: use off or fallback", flagLLMMode, EnvLLMMode, llmMode))
 	} else {
 		cfg.LLMMode = mode
+	}
+	if safety := commands.ActionSafety(llmSafety); !safety.Valid() {
+		errs = append(errs, fmt.Errorf("--%s (%s) %q: use guard, literal or states", flagLLMSafety, EnvLLMSafety, llmSafety))
+	} else {
+		cfg.LLMSafety = safety
+	}
+	if order := commands.FallbackOrder(llmOrder); !order.Valid() {
+		errs = append(errs, fmt.Errorf("--%s (%s) %q: use ha-first or model-first", flagLLMOrder, EnvLLMOrder, llmOrder))
+	} else {
+		cfg.LLMOrder = order
 	}
 
 	errs = append(errs,

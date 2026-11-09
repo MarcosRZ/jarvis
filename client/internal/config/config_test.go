@@ -57,8 +57,11 @@ func TestLoadDefaults(t *testing.T) {
 		TTSSpeaker:         "F",
 		LLMURL:             "http://127.0.0.1:8080",
 		LLMMode:            commands.InterpretFallback,
+		LLMSafety:          commands.ActionGuard,
+		LLMOrder:           commands.FallbackHAFirst,
 		LLMTimeout:         30 * time.Second,
 		LearningFile:       "client/data/learning.json",
+		ActionsFile:        "client/data/actions.json",
 		TextAddr:           "127.0.0.1:8082",
 		LogLevel:           slog.LevelInfo,
 		ConnectTimeout:     3 * time.Second,
@@ -121,8 +124,11 @@ func TestLoadPrecedence(t *testing.T) {
 		Room:               "Cocina",
 		LLMURL:             "http://127.0.0.1:8080",
 		LLMMode:            commands.InterpretFallback,
+		LLMSafety:          commands.ActionGuard,
+		LLMOrder:           commands.FallbackHAFirst,
 		LLMTimeout:         30 * time.Second,
 		LearningFile:       "/tmp/learning.json",
+		ActionsFile:        "client/data/actions.json",
 		TextAddr:           "127.0.0.1:9999",
 		LogLevel:           slog.LevelDebug,
 		ConnectTimeout:     250 * time.Millisecond,
@@ -191,6 +197,8 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"ha token is not a flag", []string{"--ha-token", "secret"}, nil, []string{"ha-token"}},
 		{"llm url not http", []string{"--llm-url", "ftp://llm.local"}, nil, []string{"--llm-url", EnvLLMURL}},
 		{"llm mode unknown", nil, map[string]string{EnvLLMMode: "sometimes"}, []string{EnvLLMMode, "sometimes"}},
+		{"llm safety unknown", nil, map[string]string{EnvLLMSafety: "sometimes"}, []string{EnvLLMSafety, "sometimes"}},
+		{"llm order unknown", nil, map[string]string{EnvLLMOrder: "sometimes"}, []string{EnvLLMOrder, "sometimes"}},
 		{"llm timeout zero", []string{"--llm-timeout", "0s"}, nil, []string{"--llm-timeout", EnvLLMTimeout}},
 		{"unknown flag", []string{"--colour", "red"}, nil, []string{"colour"}},
 		{"extra argument", []string{"surprise"}, nil, []string{"surprise"}},
@@ -211,23 +219,29 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 }
 
 func TestLoadHomeAssistant(t *testing.T) {
-	env := envFrom(map[string]string{EnvHAURL: "http://127.0.0.1:8123/", EnvHAToken: "secret"})
+	env := envFrom(map[string]string{
+		EnvHAURL:   "http://127.0.0.1:8123/",
+		EnvHAToken: "secret",
+		EnvHAAgent: " conversation.ollama ",
+	})
 	cfg, err := load(nil, env, io.Discard)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.HAURL != "http://127.0.0.1:8123/" || cfg.HAToken != "secret" {
-		t.Errorf("HAURL %q, HAToken %q", cfg.HAURL, cfg.HAToken)
+	if cfg.HAURL != "http://127.0.0.1:8123/" || cfg.HAToken != "secret" || cfg.HAAgent != "conversation.ollama" {
+		t.Errorf("HAURL %q, HAToken %q, HAAgent %q", cfg.HAURL, cfg.HAToken, cfg.HAAgent)
 	}
-	if cfg, _ := load([]string{"--ha-url", "https://ha.example:8123"}, env, io.Discard); cfg.HAURL != "https://ha.example:8123" {
-		t.Errorf("flag did not win over the environment: %q", cfg.HAURL)
+	if cfg, _ := load([]string{"--ha-url", "https://ha.example:8123", "--ha-agent", "conversation.local"}, env, io.Discard); cfg.HAURL != "https://ha.example:8123" || cfg.HAAgent != "conversation.local" {
+		t.Errorf("flags did not win over the environment: %q, %q", cfg.HAURL, cfg.HAAgent)
 	}
 }
 
 func TestLoadLanguageModel(t *testing.T) {
 	env := envFrom(map[string]string{
 		EnvLLMURL:     "http://127.0.0.1:8080/",
-		EnvLLMMode:    "always",
+		EnvLLMMode:    "off",
+		EnvLLMSafety:  "literal",
+		EnvLLMOrder:   "model-first",
 		EnvLLMTimeout: "20s",
 		EnvRoom:       "Salón",
 	})
@@ -235,8 +249,11 @@ func TestLoadLanguageModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.LLMURL != "http://127.0.0.1:8080/" || cfg.LLMMode != commands.InterpretAlways || cfg.LLMTimeout != 20*time.Second {
+	if cfg.LLMURL != "http://127.0.0.1:8080/" || cfg.LLMMode != commands.InterpretOff || cfg.LLMTimeout != 20*time.Second {
 		t.Errorf("LLMURL %q, LLMMode %q, LLMTimeout %v", cfg.LLMURL, cfg.LLMMode, cfg.LLMTimeout)
+	}
+	if cfg.LLMSafety != commands.ActionLiteral || cfg.LLMOrder != commands.FallbackModelFirst {
+		t.Errorf("LLMSafety %q, LLMOrder %q", cfg.LLMSafety, cfg.LLMOrder)
 	}
 	if cfg.Room != "Salón" {
 		t.Errorf("room %q, want Salón", cfg.Room)
@@ -246,6 +263,9 @@ func TestLoadLanguageModel(t *testing.T) {
 	}
 	if cfg, _ := load([]string{"--llm-mode", "fallback"}, env, io.Discard); cfg.LLMMode != commands.InterpretFallback {
 		t.Errorf("flag did not win over the environment: %q", cfg.LLMMode)
+	}
+	if cfg, _ := load([]string{"--llm-safety", "states", "--llm-order", "ha-first"}, env, io.Discard); cfg.LLMSafety != commands.ActionStates || cfg.LLMOrder != commands.FallbackHAFirst {
+		t.Errorf("flags did not win over the environment: %q %q", cfg.LLMSafety, cfg.LLMOrder)
 	}
 	if cfg, _ := load([]string{"--llm-url", ""}, env, io.Discard); cfg.LLMMode != commands.InterpretOff {
 		t.Errorf("mode %q with no URL, want off", cfg.LLMMode)

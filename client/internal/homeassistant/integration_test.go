@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,6 +74,20 @@ func contains(devices []Device, id string) bool {
 	return false
 }
 
+func TestIntegrationContext(t *testing.T) {
+	c := integrationClient(t)
+	got, err := c.Context(context.Background())
+	if err != nil {
+		t.Fatalf("Context: %v", err)
+	}
+	if !strings.HasPrefix(got, "Home Assistant context") {
+		t.Fatalf("unexpected context: %s", got)
+	}
+	if strings.Contains(got, c.cfg.Token) {
+		t.Fatal("context contains the access token")
+	}
+}
+
 func TestIntegrationExposureChangeNeedsNoRestart(t *testing.T) {
 	c := integrationClient(t)
 	devices, err := c.Devices(context.Background())
@@ -90,6 +105,34 @@ func TestIntegrationExposureChangeNeedsNoRestart(t *testing.T) {
 	if devices, _ = c.Devices(context.Background()); !contains(devices, id) {
 		t.Fatalf("%s is not listed after it was exposed again", id)
 	}
+}
+
+func TestIntegrationConverse(t *testing.T) {
+	c := integrationClient(t)
+	c.cfg.Language = "es"
+	reply, handled, err := c.Converse(context.Background(), "hola")
+	if err != nil {
+		t.Fatalf("Converse: %v", err)
+	}
+	if !handled || reply == "" {
+		t.Fatalf("reply %q, handled %v", reply, handled)
+	}
+	t.Logf("conversation reply: %s", reply)
+}
+
+func TestIntegrationHandlerUsesConversation(t *testing.T) {
+	c := integrationClient(t)
+	c.cfg.Language = "es"
+	h, err := commands.New(time.Now, nil, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.UseConversation(c)
+	reply := h.Handle(context.Background(), "hola")
+	if reply == "" || reply == commands.ReplyUnknown {
+		t.Fatalf("reply %q", reply)
+	}
+	t.Logf("handler reply: %s", reply)
 }
 
 func TestIntegrationSetPower(t *testing.T) {

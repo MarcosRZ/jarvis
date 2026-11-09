@@ -125,7 +125,13 @@ services:
       - --port
       - "8080"
       - --ctx-size
-      - "${LLM_CTX_SIZE:-2048}"
+      - "${LLM_CTX_SIZE:-4096}"
+      - --rope-scaling
+      - "${LLM_ROPE_SCALING:-none}"
+      - --rope-scale
+      - "${LLM_ROPE_SCALE:-1}"
+      - --yarn-orig-ctx
+      - "${LLM_YARN_ORIG_CTX:-0}"
       - --threads
       - "${LLM_THREADS:-4}"
       - --n-gpu-layers
@@ -133,7 +139,7 @@ services:
     volumes:
       - ./models/llm:/models:ro
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${LLM_PORT:-8080}:8080"
+      - "${LLM_BIND_ADDRESS:-${BIND_ADDRESS:-127.0.0.1}}:${LLM_PORT:-8080}:8080"
     restart: unless-stopped
     healthcheck:
       test:
