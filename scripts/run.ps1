@@ -4,12 +4,12 @@ Runs the voice assistant on Windows: the "make run" of the mini PC.
 
 .DESCRIPTION
 Waits for Docker, starts the voice services (server\compose.yaml), loads
-client\.env.<Env> and runs client\bin\voice-client.exe. As with "make run", the
+client\.env (or client\.env.dev with -Env dev) and runs client\bin\voice-client.exe. As with "make run", the
 VOICE_* variables of the system are removed first, so the settings come only
 from the env file.
 
 .EXAMPLE
-.\scripts\run.ps1                      # the assistant with client\.env.prod
+.\scripts\run.ps1                      # the assistant with client\.env
 .\scripts\run.ps1 devices              # list microphones and speakers
 .\scripts\run.ps1 wake-test            # any voice-client command and its flags
 .\scripts\run.ps1 -KeepRunning          # for autostart
@@ -20,8 +20,7 @@ from the env file.
 [CmdletBinding(PositionalBinding = $false)]
 param(
     [Alias('Env')]
-    [ValidateSet('dev', 'prod')]
-    [string]$Environment = 'prod',
+    [string]$Environment = '',
     # Start the client again 5 s after it stops (for autostart).
     [switch]$KeepRunning,
     # Do not start the Docker voice services.
@@ -88,9 +87,12 @@ if ($Update) { Update-Client }
 if (-not (Test-Path $exe)) {
     throw "$exe is missing; run .\scripts\run.ps1 -Update to download it"
 }
-$envFile = Join-Path $root "client\.env.$Environment"
+if ($Environment -and $Environment -ne 'dev') {
+    throw "-Env only accepts dev, or no value for client\.env"
+}
+$envFile = if ($Environment) { Join-Path $root "client\.env.$Environment" } else { Join-Path $root 'client\.env' }
 if (-not (Test-Path $envFile)) {
-    throw "$envFile is missing; copy it from client\.env.prod.example and fill it in"
+    throw "$envFile is missing; copy it from client\.env.example and fill it in"
 }
 
 function Wait-Docker {

@@ -38,7 +38,7 @@ The catalog stays in memory (`Handler.UseActionSource`). `voice-client actions` 
 
 ```sh
 make ha-up      # start it, and on the first start: create the user, the token and the Spanish names
-make run        # build, then run the assistant with client/.env.dev and the dev-token
+make run ENV=dev  # build, then run the assistant with client/.env.dev and the dev-token
 make ha-down    # stop and remove the container; the data stays in server/homeassistant
 make ha-reset   # also delete the data, except configuration.yaml, for a new first start
 ```

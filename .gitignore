@@ -4,7 +4,7 @@ server/models/*
 server/homeassistant/*
 !server/homeassistant/configuration.yaml
 client/bin/
-client/.env.prod
+client/.env
 client/data/
 .claude/settings.local.json
 .DS_Store

@@ -10,11 +10,11 @@ The voice services run in Docker Desktop (WSL 2), as on the Mac. The client runs
 
 1. Docker Desktop with the WSL 2 engine, and "Start Docker Desktop when you sign in" on.
 2. `git clone` this repository. `.gitattributes` keeps LF line endings, also on Windows.
-3. Create `client/.env.prod` from `client/.env.prod.example` (better with a new Home Assistant token for this PC), then run `.\scripts\run.ps1 -Update -NoServices version` to download `client/bin/voice-client.exe`. Optionally copy `server/models/` (about 1 GB) to skip the first download.
+3. Create `client/.env` from `client/.env.example` (better with a new Home Assistant token for this PC), then run `.\scripts\run.ps1 -Update -NoServices version` to download `client/bin/voice-client.exe`. Optionally copy `server/models/` (about 1 GB) to skip the first download.
 4. Settings > Privacy & security > Microphone: turn on "Let desktop apps access your microphone".
 5. Allow local scripts once: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
-**Run and test** (PowerShell, in the repository folder). `scripts/run.ps1` is the `make run` of Windows: it waits for Docker, starts the voice services, loads `client/.env.prod` (`-Env dev` for the other file; the `VOICE_*` variables of the system are removed first) and runs the client with the given command, `run` by default.
+**Run and test** (PowerShell, in the repository folder). `scripts/run.ps1` is the `make run` of Windows: it waits for Docker, starts the voice services, loads `client/.env` (`-Env dev` for `client/.env.dev`; the `VOICE_*` variables of the system are removed first) and runs the client with the given command, `run` by default.
 
 ```powershell
 .\scripts\run.ps1 devices      # microphone and speaker names, for VOICE_INPUT_DEVICE and VOICE_OUTPUT_DEVICE

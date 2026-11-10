@@ -52,7 +52,7 @@ The voice services run in Docker; the client runs as `voice-client.exe`, because
    cd jarvis
    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
    ```
-3. Create `client\.env.prod` (`Copy-Item client\.env.prod.example client\.env.prod`, then `notepad client\.env.prod`):
+3. Create `client\.env` (`Copy-Item client\.env.example client\.env`, then `notepad client\.env`):
    ```
    VOICE_CONFIG=client/config.yaml
    VOICE_HA_URL=http://<home-assistant-ip>:8123
@@ -75,7 +75,7 @@ The voice services run in Docker; the client runs as `voice-client.exe`, because
    ```powershell
    .\scripts\run.ps1 -Update -NoServices devices
    ```
-   If the right microphone or speaker is not the default, add `VOICE_INPUT_DEVICE=` / `VOICE_OUTPUT_DEVICE=` with the exact name to `client\.env.prod`.
+   If the right microphone or speaker is not the default, add `VOICE_INPUT_DEVICE=` / `VOICE_OUTPUT_DEVICE=` with the exact name to `client\.env`.
 7. Start it once in a window: `.\scripts\run.ps1`. The first start downloads the Docker images and the models, which takes a while; `docker compose logs -f whisper` in `server` shows `Ready` when the speech model is loaded. Allow `voice-client.exe` in the firewall for private networks when Windows asks.
 8. Start at log-on: `.\scripts\install-autostart.ps1`, and turn on the automatic log-on of Windows.
 
@@ -83,16 +83,16 @@ The voice services run in Docker; the client runs as `voice-client.exe`, because
 
 1. Install Go 1.27 or later, the Xcode Command Line Tools (`xcode-select --install`) and Docker Desktop.
 2. Start the voice services: `make services-up`.
-3. `cp client/.env.prod.example client/.env.prod`, fill in `VOICE_HA_URL` and `VOICE_HA_TOKEN`, `chmod 600 client/.env.prod`.
-4. Run: `make run ENV=prod`. Give the terminal (or the IDE) access to the microphone, and to the local network, in System Settings > Privacy & Security.
+3. `cp client/.env.example client/.env`, fill in `VOICE_HA_URL` and `VOICE_HA_TOKEN`, `chmod 600 client/.env`.
+4. Run: `make run`. Give the terminal (or the IDE) access to the microphone, and to the local network, in System Settings > Privacy & Security.
 
-Without a real Home Assistant, `make ha-up` starts a development one with demo lights, and `make run` uses it. See [docs/home-assistant.md](docs/home-assistant.md).
+Without a real Home Assistant, `make ha-up` starts a development one with demo lights, and `make run ENV=dev` uses it. See [docs/home-assistant.md](docs/home-assistant.md).
 
 ## Use
 
 | Task | Windows (PowerShell, in `jarvis`) | Mac |
 |---|---|---|
-| Start the assistant | `.\scripts\run.ps1`, or `Start-ScheduledTask -TaskName 'Jarvis voice assistant'` | `make run ENV=prod` |
+| Start the assistant | `.\scripts\run.ps1`, or `Start-ScheduledTask -TaskName 'Jarvis voice assistant'` | `make run` |
 | Stop it | Ctrl+C, or `Stop-ScheduledTask -TaskName 'Jarvis voice assistant'` | Ctrl+C |
 | List audio devices | `.\scripts\run.ps1 devices` | `client/bin/voice-client devices` |
 | Microphone level / record and play back | `.\scripts\run.ps1 mic-test` / `loopback` | `client/bin/voice-client mic-test` / `loopback` |
@@ -107,7 +107,7 @@ All commands: [docs/cli.md](docs/cli.md). Each request logs its steps and times,
 
 | File | What | Reference |
 |---|---|---|
-| `client/.env.prod` | Home Assistant, audio devices, timings, logging | [docs/configuration.md](docs/configuration.md) |
+| `client/.env` | Home Assistant, audio devices, timings, logging | [docs/configuration.md](docs/configuration.md) |
 | `client/config.yaml` | the beep, and how misheard fixed commands are corrected | [docs/configuration.md](docs/configuration.md#configuration-file) |
 | `server/.env` | speech engine, wake-word sensitivity, Piper voice | [docs/voice-services.md](docs/voice-services.md), [docs/wake-word.md](docs/wake-word.md) |
 
@@ -132,7 +132,7 @@ git pull
 git tag v0.1.2 && git push origin v0.1.2
 ```
 
-**Mac:** `git pull`, `make services-up`, `make run ENV=prod`.
+**Mac:** `git pull`, `make services-up`, `make run`.
 
 ## When something goes wrong
 

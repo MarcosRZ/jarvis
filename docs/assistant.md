@@ -72,7 +72,7 @@ The assistant stops only for a microphone failure, an unknown wake-word model or
 
 **Commands.** See [commands.md](commands.md).
 
-**Privacy.** The command text (`msg=heard`, also when it is empty) is logged only with `--log-transcripts` or at `--log-level debug`. `client/.env.dev` turns it on; it is off by default. Recordings are cleared after the transcription. The learning file stores normalized command sentences on disk with mode 0600 even when transcripts are off; set `VOICE_LEARNING_FILE=off` to turn learning off.
+**Privacy.** The command text (`msg=heard`, also when it is empty) is logged only with `--log-transcripts` or at `--log-level debug`. `make run ENV=dev` uses `client/.env.dev`, which turns it on; it is off by default. Recordings are cleared after the transcription. The learning file stores normalized command sentences on disk with mode 0600 even when transcripts are off; set `VOICE_LEARNING_FILE=off` to turn learning off.
 
 **End-to-end test.** `make integration` runs the pipeline with the real services and the real detector, recorder, Whisper client, command handler and Piper speaker. Only the speaker output is a fake. The input is Piper speech (`es_ES-davefx-medium`) fed at real-time speed, as from a microphone: three times "Alexa", 1 s of silence and a command ("¿Qué hora es?", "¿Qué puedes hacer?", "Repite lo que he dicho."), each followed by 4 s of silence. Each reply must be correct, and the third must repeat the text of the second. Measured on 2026-10-20: 3 of 3 runs passed, about 21.6 s for the three requests (of which about 17 s is the input itself).
 

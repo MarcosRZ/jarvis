@@ -41,22 +41,22 @@ A flag wins over an environment variable. An environment variable wins over the 
 
 ## Env files
 
-`make run` builds the client and runs the assistant with the settings in `client/.env.$(ENV)`:
+`make run` builds the client and runs the assistant with the settings in `client/.env`; `make run ENV=dev` uses `client/.env.dev`:
 
 ```sh
-make run                          # client/.env.dev: the development Home Assistant (make ha-up)
-make run ENV=prod                 # client/.env.prod: your own Home Assistant
+make run                          # client/.env: your Home Assistant
+make run ENV=dev                  # client/.env.dev: the development Home Assistant (make ha-up)
 make run ARGS="--log-level info"  # flags still win over the file
 ```
 
-- `client/.env.dev` is committed and has no secrets. When it has no `VOICE_HA_TOKEN`, `make run` uses the token in `server/homeassistant/dev-token`.
-- `client/.env.prod` is git-ignored. Copy it from `client/.env.prod.example`, set `VOICE_HA_URL` and `VOICE_HA_TOKEN`, and run `chmod 600 client/.env.prod`. The example also enables the local command model and sets `VOICE_ROOM=Salon`: change it to the room where the assistant is, or leave it empty. Set `VOICE_LLM_MODE=off` to turn off the local command model; the deterministic catalog and Home Assistant still handle the exposed devices and questions. Set `VOICE_HA_AGENT` to use a conversation agent other than the default.
+- `client/.env` is git-ignored. Copy it from `client/.env.example`, set `VOICE_HA_URL` and `VOICE_HA_TOKEN`, and run `chmod 600 client/.env`. The example also enables the local command model and sets `VOICE_ROOM=Salon`: change it to the room where the assistant is, or leave it empty. Set `VOICE_LLM_MODE=off` to turn off the local command model; the deterministic catalog and Home Assistant still handle the exposed devices and questions. Set `VOICE_HA_AGENT` to use a conversation agent other than the default.
+- `client/.env.dev` is committed and has no secrets; use it with `make run ENV=dev`. When it has no `VOICE_HA_TOKEN`, `make run ENV=dev` uses the token in `server/homeassistant/dev-token`.
 - The settings come only from the file: `make run` first removes the `VOICE_*` variables of your shell, so a development run never uses a production token by mistake.
 - The file is read by the shell (`set -a; . file`): put values with spaces in quotes.
 
 ## Configuration file
 
-`--config` (`VOICE_CONFIG`) names a YAML file with the settings that have no flag or variable. Empty means the defaults. `client/.env.dev` and `client/.env.prod.example` set `VOICE_CONFIG=client/config.yaml`, the committed file with every key and its rules. A key that is not in the file keeps its default; an unknown key or a bad value stops the client, like a bad flag. `config-check` shows the file and the values.
+`--config` (`VOICE_CONFIG`) names a YAML file with the settings that have no flag or variable. Empty means the defaults. `client/.env.example` and `client/.env.dev` set `VOICE_CONFIG=client/config.yaml`, the committed file with every key and its rules. A key that is not in the file keeps its default; an unknown key or a bad value stops the client, like a bad flag. `config-check` shows the file and the values.
 
 | Key | Default | Rule |
 |---|---|---|

@@ -1,6 +1,6 @@
 # Client configuration for the settings that have no flag or environment
 # variable. A key that is not here keeps its default. "make run" uses this file
-# through VOICE_CONFIG in client/.env.dev and client/.env.prod.
+# through VOICE_CONFIG in client/.env and client/.env.dev.
 
 wake_word:
   # Sound after the wake word, before the recording starts.

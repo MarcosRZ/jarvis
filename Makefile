@@ -12,9 +12,10 @@ HA_COMPOSE := docker compose --profile homeassistant
 LLM_MODEL := $(SERVER_DIR)/models/llm/qwen2.5-0.5b-instruct-q4_k_m.gguf
 LLM_MODEL_URL := https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf
 
-# make run reads the client settings from client/.env.$(ENV): dev or prod.
-ENV := dev
-ENV_FILE := $(CLIENT_DIR)/.env.$(ENV)
+# make run reads client/.env; "make run ENV=dev" reads client/.env.dev.
+ENV :=
+ENV_FILE := $(CLIENT_DIR)/.env$(if $(ENV),.$(ENV),)
+ENV_EXAMPLE := $(if $(ENV),$(ENV_FILE),$(CLIENT_DIR)/.env.example)
 
 .PHONY: build test integration lint clean services-up services-down services-status services-logs llm-model ha-up ha-down ha-reset run actions windows
 
@@ -82,7 +83,7 @@ ha-reset: ha-down
 # The settings come only from the env file: VOICE_* variables of the shell are
 # removed first, so a dev run never picks up a prod token. ARGS adds flags.
 run: build
-	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) is missing; copy it from $(ENV_FILE).example"; exit 1; }
+	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) is missing; use $(ENV_EXAMPLE)"; exit 1; }
 	@unset $$(env | sed -n 's/^\(VOICE_[A-Z_]*\)=.*/\1/p'); \
 	set -a; . ./$(ENV_FILE); set +a; \
 	if [ "$(ENV)" = dev ] && [ -z "$${VOICE_HA_TOKEN:-}" ] && [ -f $(HA_TOKEN_FILE) ]; then \
@@ -93,7 +94,7 @@ run: build
 # Generates and prints the action catalog from the exposed Home Assistant
 # entities, with the same env file as "make run". ARGS adds flags.
 actions: build
-	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) is missing; copy it from $(ENV_FILE).example"; exit 1; }
+	@test -f $(ENV_FILE) || { echo "$(ENV_FILE) is missing; use $(ENV_EXAMPLE)"; exit 1; }
 	@unset $$(env | sed -n 's/^\(VOICE_[A-Z_]*\)=.*/\1/p'); \
 	set -a; . ./$(ENV_FILE); set +a; \
 	if [ "$(ENV)" = dev ] && [ -z "$${VOICE_HA_TOKEN:-}" ] && [ -f $(HA_TOKEN_FILE) ]; then \

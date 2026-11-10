@@ -5,7 +5,7 @@ Starts the voice assistant when you log in to Windows.
 .DESCRIPTION
 Registers the scheduled task "Jarvis voice assistant", which runs
 scripts\run.ps1 -KeepRunning at log-on, in a hidden window. The log is only
-in memory: set VOICE_LOG_HTTP_ADDR in client\.env.prod to read it over the
+in memory: set VOICE_LOG_HTTP_ADDR in client\.env to read it over the
 network. It runs in your session, because a Windows service has
 no access to the microphone. Turn on the automatic log-on of Windows and the
 "Start Docker Desktop when you sign in" setting.
