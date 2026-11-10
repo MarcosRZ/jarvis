@@ -4,6 +4,7 @@ BINARY := voice-client
 VERSION ?= dev
 
 SERVER_DIR := server
+DASHBOARD_DIR := dashboard
 HA_DIR := $(SERVER_DIR)/homeassistant
 HA_URL := http://127.0.0.1:8123
 HA_TOKEN_FILE := $(CURDIR)/$(HA_DIR)/dev-token
@@ -17,7 +18,7 @@ ENV :=
 ENV_FILE := $(CLIENT_DIR)/.env$(if $(ENV),.$(ENV),)
 ENV_EXAMPLE := $(if $(ENV),$(ENV_FILE),$(CLIENT_DIR)/.env.example)
 
-.PHONY: build test integration lint clean services-up services-down services-status services-logs llm-model ha-up ha-down ha-reset run actions windows
+.PHONY: build test integration lint clean services-up services-down services-status services-logs llm-model ha-up ha-down ha-reset run actions windows dashboard-build dashboard-up dashboard-down dashboard-logs
 
 build:
 	cd $(CLIENT_DIR) && go build -ldflags "-X main.version=$(VERSION)" -o bin/$(BINARY) ./cmd/voice-client
@@ -68,6 +69,18 @@ services-status:
 
 services-logs:
 	cd $(SERVER_DIR) && docker compose logs --tail 100 --follow
+
+dashboard-build:
+	cd $(DASHBOARD_DIR) && docker compose build
+
+dashboard-up:
+	cd $(DASHBOARD_DIR) && docker compose up -d --build
+
+dashboard-down:
+	cd $(DASHBOARD_DIR) && docker compose down
+
+dashboard-logs:
+	cd $(DASHBOARD_DIR) && docker compose logs --tail 100 --follow
 
 ha-up:
 	cd $(SERVER_DIR) && $(HA_COMPOSE) up -d --wait homeassistant
