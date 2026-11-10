@@ -36,8 +36,17 @@ func TestStoreLearnsAndPersists(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open again: %v", err)
 	}
-	if got, ok := reopened.Lookup("no veo nada"); !ok || got != e {
-		t.Fatalf("reopened %+v, %v; want %+v", got, ok, e)
+	got, ok := reopened.Lookup("no veo nada")
+	if !ok {
+		t.Fatalf("reopened lookup failed; want %+v", e)
+	}
+	// time.Time values from JSON use a different location pointer than the
+	// input time, so compare fields and the instant instead of the struct.
+	if got.Text != e.Text || got.Device != e.Device || got.Name != e.Name ||
+		got.Kind != e.Kind || got.Action != e.Action || got.Score != e.Score ||
+		got.Successes != e.Successes || got.Failures != e.Failures ||
+		!got.Updated.Equal(e.Updated) {
+		t.Fatalf("reopened %+v; want %+v", got, e)
 	}
 }
 
