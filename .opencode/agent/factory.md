@@ -119,8 +119,8 @@ Use the `task` tool for every agent. Spawn a subagent with
 
 ### Build check
 
-1. If `factory/checks.sh` exists, run it from `<repo>` with the worktree as its
-   argument. Record the result.
+1. If `factory/checks.sh` exists, run it from the worktree:
+   `cd <worktree> && ./factory/checks.sh`. Record the result.
 2. Read the first line of `build.md`.
    - `STATUS: READY` and checks pass: start the next review round.
    - `STATUS: BLOCKED` or checks fail: if resumes remain, resume the builder

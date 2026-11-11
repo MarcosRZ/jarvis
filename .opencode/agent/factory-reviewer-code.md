@@ -34,9 +34,9 @@ shell command with `cd <worktree> && ` when it must run in the worktree.
 ## Check
 
 Run the validation commands AGENTS.md lists (tests, build, lint, type-check)
-for the areas the branch touches. If `factory/checks.sh` exists, run it from the
-main checkout with the worktree as its argument. Lint only the changed files,
-and never use a mode that rewrites files, such as `--fix`.
+for the areas the branch touches. If `factory/checks.sh` exists, run it from
+the worktree: `cd <worktree> && ./factory/checks.sh`. Lint only the changed
+files, and never use a mode that rewrites files, such as `--fix`.
 
 ## What to look for
 

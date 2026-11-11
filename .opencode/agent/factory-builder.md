@@ -43,8 +43,9 @@ shell command with `cd <worktree> && `, and use absolute paths for the worktree.
 - Make the simplest change that fully meets the spec. No fallbacks, hidden
   defaults or extras the spec doesn't ask for.
 - Use the toolchain versions and commands AGENTS.md gives.
-- If `factory/checks.sh` exists, run it from the main checkout with the worktree
-  as its argument. It must pass before you write `STATUS: READY`.
+- If `factory/checks.sh` exists, run it from the worktree:
+  `cd <worktree> && ./factory/checks.sh`. It must pass before you write
+  `STATUS: READY`.
 
 ## Test against the acceptance criteria
 

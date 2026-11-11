@@ -463,18 +463,18 @@ def stage_build(job, job_dir, worktree, config, dry_run, commands, round_no):
             f"You are the builder for factory job {job['id']}.\n\n"
             f"{context(job, job_dir, worktree)}\n"
             f"Read {job_dir / 'spec.md'} and, if it exists, {build}. "
-            "Implement the spec in the worktree. Run the relevant checks. "
-            "Commit your code. Write build.md with what changed and the checks "
-            "you ran. Do not merge."
+            "Implement the spec in the worktree. Run `./factory/checks.sh` from "
+            "the worktree. Commit your code. Write build.md with what changed "
+            "and the checks you ran. Do not merge."
         )
     else:
         prompt = (
             f"You are the builder for factory job {job['id']}, rework round {round_no}.\n\n"
             f"{context(job, job_dir, worktree)}\n"
             f"Read {job_dir / 'spec.md'}, {build}, and every review in "
-            f"{job_dir / f'round-{round_no - 1}'}. Fix all findings. Run the "
-            f"relevant checks. Commit the fix. Write {rework} with what changed "
-            "and the checks you ran. Do not merge."
+            f"{job_dir / f'round-{round_no - 1}'}. Fix all findings. Run "
+            "`./factory/checks.sh` from the worktree. Commit the fix. Write "
+            f"{rework} with what changed and the checks you ran. Do not merge."
         )
     job["status"] = "build"
     job["round"] = round_no
