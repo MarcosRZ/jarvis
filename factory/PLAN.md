@@ -75,7 +75,7 @@ data.
   - Verification: serve it with `python3 -m http.server` from `factory/` and
     check the queued cards render.
 
-- [ ] **CP5 - Pilot job**
+- [x] **CP5 - Pilot job**
   - Add one small dashboard task to the queue.
   - Run it end to end with auto-merge off.
   - Inspect spec, build, reviews and decision artifacts.
@@ -98,12 +98,15 @@ data.
 
 ## Current state
 
-- Current checkpoint: CP4 complete.
-- Next action: CP5 pilot job. Commit the factory files first, add one small
-  dashboard task, and run it end to end with auto-merge off.
-- Auto-merge: disabled.
-- Queue: empty in `factory/queue.json`; `factory/queue.example.json` is a
-  schema example for dry-runs.
+- Current checkpoint: CP5 complete.
+- Next action: human review and merge of `factory/prompt-api-docs`, then CP6
+  real-data design task.
+- Pilot: `prompt-api-docs` reached `needs-human` with `APPROVE`. Branch
+  `factory/prompt-api-docs` is at `f36a696`; checks passed, all four round-1
+  reviews passed, and the worktree is clean.
+- Auto-merge: disabled. The pilot branch is not merged.
+- Queue: `factory/queue.json` holds the completed `prompt-api-docs` task in
+  `needs-human`; `factory/queue.example.json` remains the schema example.
 - Known requirement: commit `.opencode` and `AGENTS.md` before a real job run.
   The runner stops at `needs-human` if the worktree lacks the agents.
 
@@ -131,3 +134,9 @@ python3 factory/runner.py --dry-run --queue factory/queue.example.json
   `python3 -m http.server`. A headless Brave screenshot showed one queued and
   one running card, the summary counts and the job details. The test queue was
   restored to empty.
+- 2026-11-11: CP5 completed. The `prompt-api-docs` pilot reached `needs-human`
+  with `APPROVE`; branch `factory/prompt-api-docs` has one docs commit
+  (`f36a696`), checks passed, and all four round-1 reviews passed. Headless
+  fixes: builder/reviewers run `factory/checks.sh` from the worktree, and the
+  approver is told not to read `factory/logs` or the main checkout because
+  external-directory permissions auto-reject it.

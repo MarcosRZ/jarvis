@@ -626,7 +626,8 @@ def stage_approve(job, job_dir, worktree, config, dry_run, commands, round_no):
             f"You are the approver for factory job {job['id']}, final round "
             f"{round_no}.\n\n"
             f"{context(job, job_dir, worktree)}\n"
-            f"Read all artifacts in the job folder. Write {decision}."
+            f"Read all artifacts in the job folder. Do not read factory/logs or "
+            f"the main checkout. Write {decision}."
         )
         run_agent(
             config["agents"]["approver"],

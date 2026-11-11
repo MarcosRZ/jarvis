@@ -26,7 +26,9 @@ shell command with `cd <worktree> && ` when it must run in the worktree.
 
 1. `AGENTS.md` (or `CLAUDE.md`).
 2. Everything in the job folder: `spec.md`, `build.md`, any `rework-*.md`, and
-   every `round-*/review-*.md`.
+   every `round-*/review-*.md`. Use `job.json` for the recorded checks result.
+   Do not read `factory/logs/` or the main checkout; those paths are outside
+   the job folder and are not part of the approval evidence.
 3. The change: `git log --oneline main..<branch>` and `git diff main...<branch>`.
 
 ## Decide

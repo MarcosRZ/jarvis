@@ -1,5 +1,19 @@
 {
   "version": 1,
-  "updated_at": "2026-11-11T00:00:00+00:00",
-  "tasks": []
+  "updated_at": "2026-11-11T20:25:20+00:00",
+  "tasks": [
+    {
+      "id": "prompt-api-docs",
+      "title": "Document the prompt settings API",
+      "request": "Document the prompt settings API in `dashboard/README.md`. Add a short section that covers `GET`, `PUT`, and `DELETE /api/settings/prompt`, the JSON body (`prompt`), the response shape, where the prompt is stored (`/data/prompt.json` in the `dashboard-data` volume), and that `Reset to built-in` deletes the custom prompt. Keep the existing README structure and style. Do not change code.",
+      "status": "needs-human",
+      "priority": 0,
+      "depends_on": [],
+      "created_at": "2026-11-11T19:55:00+00:00",
+      "attempts": 4,
+      "started_at": "2026-11-11T20:23:48+00:00",
+      "finished_at": "2026-11-11T20:25:20+00:00",
+      "last_error": null
+    }
+  ]
 }
