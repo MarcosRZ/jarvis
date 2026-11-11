@@ -36,20 +36,25 @@ type Config struct {
 	// Room is where the assistant is, for example "Salón". It lets the model
 	// resolve "aquí" to the devices of that room. Empty when unknown.
 	Room string
+	// Prompt replaces the built-in question prompt. Empty uses the built-in
+	// prompt. The Home Assistant context and the JSON reply rule are added.
+	Prompt string
 }
 
 // Client asks a llama.cpp server for commands. It is safe for concurrent use.
 type Client struct {
-	url  string
-	room string
-	http *http.Client
+	url    string
+	room   string
+	prompt string
+	http   *http.Client
 }
 
 func New(cfg Config) *Client {
 	return &Client{
-		url:  strings.TrimRight(cfg.URL, "/"),
-		room: strings.TrimSpace(cfg.Room),
-		http: &http.Client{Timeout: cfg.Timeout},
+		url:    strings.TrimRight(cfg.URL, "/"),
+		room:   strings.TrimSpace(cfg.Room),
+		prompt: strings.TrimSpace(cfg.Prompt),
+		http:   &http.Client{Timeout: cfg.Timeout},
 	}
 }
 
@@ -76,7 +81,7 @@ func (c *Client) InterpretContext(ctx context.Context, text string, devices []co
 		return commands.Interpretation{}, nil
 	}
 	if commands.LooksLikeQuestion(text) {
-		a, err := c.complete(ctx, text, questionPrompt(homeContext), replySchema(), maxContextTokens)
+		a, err := c.complete(ctx, text, c.questionPrompt(homeContext), replySchema(), maxContextTokens)
 		if err != nil {
 			return commands.Interpretation{}, err
 		}
@@ -91,6 +96,16 @@ func (c *Client) InterpretContext(ctx context.Context, text string, devices []co
 		return commands.Interpretation{}, err
 	}
 	return commands.Interpretation{Commands: parsed, Reply: strings.TrimSpace(a.Reply)}, nil
+}
+
+// InterpretAnswer asks for a general answer, without allowing an action. It is
+// the fallback for an unresolved sentence that no action can satisfy.
+func (c *Client) InterpretAnswer(ctx context.Context, text, homeContext string) (string, error) {
+	a, err := c.complete(ctx, text, c.questionPrompt(homeContext), replySchema(), maxContextTokens)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(a.Reply), nil
 }
 
 // InterpretActions maps text to one or more actions of the generated catalog.
@@ -410,34 +425,10 @@ Asistente: {"commands": [], "reply": "Según el pronóstico, hay lluvia."}
 	return b.String()
 }
 
-// questionPrompt is a small prompt for a question that Home Assistant did not
-// answer. It omits the command examples so that the context fits and the model
-// spends its time reading the state and forecast, not the action examples.
-func questionPrompt(homeContext string) string {
-	var b strings.Builder
-	b.WriteString("You are a Spanish voice assistant. Answer the user's question using only the read-only Home Assistant context.\n\n")
-	b.WriteString("Home Assistant context (read-only):\n")
-	b.WriteString(strings.TrimSpace(homeContext))
-	b.WriteString(`
-Rules:
-- Answer in Spanish, in one short sentence.
-- Use only values and entity names present in the context.
-- Do not invent a sensor, a forecast, or a value.
-- If the context does not contain the answer, return an empty reply.
-- The user may phrase a question without "?": "Va a llover" means "¿Va a llover?".
-- For a future value, prefer the forecast entries over summary sensors.
-- Never repeat the question: give the answer.
-- Do not control a device.
-- Return one JSON object with the key "reply".
-
-Examples:
-Context:
-sensor.example (Ejemplo): 42
-Question: ¿Cuánto marca el ejemplo?
-Answer: {"reply": "Marca 42."}
-
-`)
-	return b.String()
+// questionPrompt returns the configurable question prompt with the read-only
+// Home Assistant context.
+func (c *Client) questionPrompt(homeContext string) string {
+	return buildQuestionPrompt(c.prompt, homeContext)
 }
 
 // actionsPrompt lists the generated catalog and the read-only context. The

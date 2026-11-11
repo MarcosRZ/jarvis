@@ -109,7 +109,7 @@ func TestInterpretContextReturnsReply(t *testing.T) {
 		t.Errorf("max tokens %d, want %d", req.MaxTokens, maxContextTokens)
 	}
 	system := req.Messages[0].Content
-	for _, want := range []string{"weather.forecast_casa: rain", `"reply"`, "Spanish voice assistant"} {
+	for _, want := range []string{"weather.forecast_casa: rain", `"reply"`, "helpful voice assistant"} {
 		if !strings.Contains(system, want) {
 			t.Errorf("system prompt does not contain %q:\n%s", want, system)
 		}

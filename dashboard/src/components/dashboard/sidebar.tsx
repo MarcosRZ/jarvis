@@ -26,7 +26,7 @@ const primaryNav = [
 ];
 
 const secondaryNav = [
-  { label: "Configuracion", href: "/configuracion", icon: Settings, soon: true },
+  { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 function NavItem({

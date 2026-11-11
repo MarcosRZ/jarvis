@@ -128,7 +128,7 @@ if (-not $NoServices) {
     Get-LLMModel
     Push-Location (Join-Path $root 'server')
     try {
-        docker compose up -d --wait
+        docker compose up -d --build --wait
         if ($LASTEXITCODE -ne 0) { throw 'docker compose up failed; see "docker compose logs" in server' }
     } finally {
         Pop-Location

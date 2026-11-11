@@ -24,6 +24,10 @@ The catalog is rebuilt at start and when the last read is older than 30 seconds.
 
 The model never receives the Home Assistant token, service names, URLs or unexposed entities. Its answer is constrained to the current action IDs or to `turn_on`/`turn_off` for an allowlisted light or switch. The client checks every answer again before running it.
 
+General answers and conversation are allowed. The question prompt is edited in the dashboard (`Settings`), and the assistant reads it at startup. The built-in prompt permits jokes and general knowledge; device actions remain separate and guarded.
+
+A reply that mostly repeats the sentence is rejected, so a model cannot parrot the question back. If the model returns no usable reply, the assistant says it does not know.
+
 `VOICE_ROOM` tells the model where the assistant is, so "here" means that room. The room is matched against device names; Home Assistant areas are not used.
 
 ## Safety

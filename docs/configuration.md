@@ -54,6 +54,7 @@ Every setting is listed with a comment in `client/.env.example` and `server/.env
 | `VOICE_LLM_ORDER` | `ha-first` (default) or `model-first` |
 | `VOICE_LLM_SAFETY` | `guard` (default), `literal` or `states` |
 | `VOICE_LLM_TIMEOUT` | Timeout for one model answer |
+| `VOICE_PROMPT_URL` | Dashboard prompt endpoint; empty uses the built-in prompt |
 | `VOICE_ROOM` | Room used to resolve "here"; match it to a device name |
 | `VOICE_LEARNING_FILE` | Learned associations; `off` disables learning |
 | `VOICE_ACTIONS_FILE` | Snapshot written by `voice-client actions` |
@@ -107,3 +108,14 @@ commands:
 | `DASHBOARD_PORT` | Dashboard port, default `3005` |
 
 The remaining model and port settings are documented in `server/.env.example`.
+
+## Prompt
+
+The prompt for questions and general conversation is edited in the dashboard at
+http://127.0.0.1:3005/settings. It is stored in the `dashboard-data` volume. The
+assistant reads it at startup, so restart `make run` after a change.
+
+The prompt may use `{{context}}` where the read-only Home Assistant context
+should go. Without it, the context is appended. The JSON reply format is always
+appended. The editor shows the built-in prompt when no custom prompt is saved;
+`Reset to built-in` removes the custom prompt.

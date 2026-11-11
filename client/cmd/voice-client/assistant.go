@@ -24,6 +24,7 @@ const (
 	// delays a spoken reply by at most this much.
 	haTimeout     = 5 * time.Second
 	deviceRefresh = 30 * time.Second
+	promptTimeout = 2 * time.Second
 )
 
 // runAssistant connects the microphone, the voice services, the command
@@ -65,7 +66,17 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	handler.UseRoom(cfg.Room)
 	handler.UseInference(cfg.LLMOrder, cfg.LLMSafety)
 	if cfg.LLMMode != commands.InterpretOff {
-		interpreter := llm.New(llm.Config{URL: cfg.LLMURL, Timeout: cfg.LLMTimeout, Room: cfg.Room})
+		prompt := ""
+		if cfg.PromptURL != "" {
+			loaded, err := llm.FetchPrompt(ctx, cfg.PromptURL, promptTimeout)
+			if err != nil {
+				logger.Warn("language model prompt", "url", cfg.PromptURL, "error", err)
+			} else if loaded != "" {
+				prompt = loaded
+				logger.Info("language model prompt", "source", "dashboard", "url", cfg.PromptURL)
+			}
+		}
+		interpreter := llm.New(llm.Config{URL: cfg.LLMURL, Timeout: cfg.LLMTimeout, Room: cfg.Room, Prompt: prompt})
 		handler.UseInterpreter(interpreter, cfg.LLMMode)
 		logger.Info("language model", "url", cfg.LLMURL, "mode", cfg.LLMMode, "safety", cfg.LLMSafety, "order", cfg.LLMOrder, "room", cfg.Room)
 	}

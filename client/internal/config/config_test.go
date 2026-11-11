@@ -60,6 +60,7 @@ func TestLoadDefaults(t *testing.T) {
 		LLMSafety:          commands.ActionGuard,
 		LLMOrder:           commands.FallbackHAFirst,
 		LLMTimeout:         30 * time.Second,
+		PromptURL:          "http://127.0.0.1:3005/api/settings/prompt",
 		LearningFile:       "client/data/learning.json",
 		ActionsFile:        "client/data/actions.json",
 		TextAddr:           "127.0.0.1:8082",
@@ -99,6 +100,7 @@ func TestLoadPrecedence(t *testing.T) {
 		EnvLogTranscripts:     "true",
 		EnvLogHTTPAddr:        "0.0.0.0:8081",
 		EnvTextAddr:           "127.0.0.1:9999",
+		EnvPromptURL:          "http://prompt.local:3005/api/settings/prompt",
 	})
 	args := []string{"--stt-addr", "host.local:4", "--wakeword-cooldown", "0s", "--input-device", "flag mic", "--connect-timeout", "250ms", "--record-max", "12s", "--speech-level", "-35", "--tts-speaker", "F", "--room", " Cocina "}
 
@@ -127,6 +129,7 @@ func TestLoadPrecedence(t *testing.T) {
 		LLMSafety:          commands.ActionGuard,
 		LLMOrder:           commands.FallbackHAFirst,
 		LLMTimeout:         30 * time.Second,
+		PromptURL:          "http://prompt.local:3005/api/settings/prompt",
 		LearningFile:       "/tmp/learning.json",
 		ActionsFile:        "client/data/actions.json",
 		TextAddr:           "127.0.0.1:9999",
@@ -196,6 +199,7 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"ha url without host", []string{"--ha-url", "http://"}, map[string]string{EnvHAToken: "t"}, []string{"--ha-url"}},
 		{"ha token is not a flag", []string{"--ha-token", "secret"}, nil, []string{"ha-token"}},
 		{"llm url not http", []string{"--llm-url", "ftp://llm.local"}, nil, []string{"--llm-url", EnvLLMURL}},
+		{"prompt url not http", []string{"--prompt-url", "ftp://prompt.local"}, nil, []string{"--prompt-url", EnvPromptURL}},
 		{"llm mode unknown", nil, map[string]string{EnvLLMMode: "sometimes"}, []string{EnvLLMMode, "sometimes"}},
 		{"llm safety unknown", nil, map[string]string{EnvLLMSafety: "sometimes"}, []string{EnvLLMSafety, "sometimes"}},
 		{"llm order unknown", nil, map[string]string{EnvLLMOrder: "sometimes"}, []string{EnvLLMOrder, "sometimes"}},

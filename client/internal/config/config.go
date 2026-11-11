@@ -43,6 +43,7 @@ const (
 	EnvLLMSafety        = "VOICE_LLM_SAFETY"
 	EnvLLMOrder         = "VOICE_LLM_ORDER"
 	EnvLLMTimeout       = "VOICE_LLM_TIMEOUT"
+	EnvPromptURL        = "VOICE_PROMPT_URL"
 	EnvRoom             = "VOICE_ROOM"
 	EnvLearningFile     = "VOICE_LEARNING_FILE"
 	EnvActionsFile      = "VOICE_ACTIONS_FILE"
@@ -75,6 +76,7 @@ const (
 	flagLLMSafety          = "llm-safety"
 	flagLLMOrder           = "llm-order"
 	flagLLMTimeout         = "llm-timeout"
+	flagPromptURL          = "prompt-url"
 	flagRoom               = "room"
 	flagLearningFile       = "learning-file"
 	flagActionsFile        = "actions-file"
@@ -103,6 +105,7 @@ const (
 	defaultLLMSafety          = commands.ActionGuard
 	defaultLLMOrder           = commands.FallbackHAFirst
 	defaultLLMTimeout         = 30 * time.Second
+	defaultPromptURL          = "http://127.0.0.1:3005/api/settings/prompt"
 	defaultLearningFile       = "client/data/learning.json"
 	defaultActionsFile        = "client/data/actions.json"
 	defaultTextAddr           = "127.0.0.1:8082"
@@ -147,6 +150,9 @@ type Config struct {
 	LLMSafety  commands.ActionSafety
 	LLMOrder   commands.FallbackOrder
 	LLMTimeout time.Duration
+	// PromptURL serves the configurable question prompt. Empty uses the built-in
+	// prompt.
+	PromptURL string
 	// Room is where the assistant is, so that "aquí" has a meaning. Empty when
 	// unknown.
 	Room string
@@ -200,6 +206,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		LLMSafety:          commands.ActionSafety(envOr(getenv, EnvLLMSafety, string(defaultLLMSafety))),
 		LLMOrder:           commands.FallbackOrder(envOr(getenv, EnvLLMOrder, string(defaultLLMOrder))),
 		LLMTimeout:         defaultLLMTimeout,
+		PromptURL:          envOr(getenv, EnvPromptURL, defaultPromptURL),
 		Room:               strings.TrimSpace(getenv(EnvRoom)),
 		LearningFile:       envOr(getenv, EnvLearningFile, defaultLearningFile),
 		ActionsFile:        envOr(getenv, EnvActionsFile, defaultActionsFile),
@@ -281,6 +288,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	llmOrder := string(cfg.LLMOrder)
 	fs.StringVar(&llmOrder, flagLLMOrder, llmOrder, usage("ha-first (Home Assistant before the model) or model-first (model before Home Assistant)", EnvLLMOrder))
 	fs.DurationVar(&cfg.LLMTimeout, flagLLMTimeout, cfg.LLMTimeout, usage("maximum time for one language-model answer", EnvLLMTimeout))
+	fs.StringVar(&cfg.PromptURL, flagPromptURL, cfg.PromptURL, usage("URL of the configurable language-model prompt; empty for the built-in prompt", EnvPromptURL))
 	fs.StringVar(&cfg.Room, flagRoom, cfg.Room, usage(`room where the assistant is, so that "aquí" means that room, for example Salón; empty when unknown`, EnvRoom))
 	fs.StringVar(&cfg.LearningFile, flagLearningFile, cfg.LearningFile, usage("JSON file for learned sentences and their feedback; empty to turn learning off", EnvLearningFile))
 	fs.StringVar(&cfg.ActionsFile, flagActionsFile, cfg.ActionsFile, usage("JSON file where the actions command writes the generated action catalog", EnvActionsFile))
@@ -370,6 +378,11 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	}
 	if cfg.LLMTimeout <= 0 {
 		errs = append(errs, fmt.Errorf("--%s (%s) %v: use a value greater than 0", flagLLMTimeout, EnvLLMTimeout, cfg.LLMTimeout))
+	}
+	if cfg.PromptURL != "" {
+		if u, err := url.Parse(cfg.PromptURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			errs = append(errs, fmt.Errorf("--%s (%s) %q: use http://host:port or https://host:port", flagPromptURL, EnvPromptURL, cfg.PromptURL))
+		}
 	}
 	if cfg.ConnectTimeout <= 0 {
 		errs = append(errs, fmt.Errorf("--%s (%s) %v: use a value greater than 0", flagConnectTimeout, EnvConnectTimeout, cfg.ConnectTimeout))

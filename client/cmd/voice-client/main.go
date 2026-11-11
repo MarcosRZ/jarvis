@@ -202,6 +202,7 @@ func printConfig(w io.Writer, cfg config.Config) {
 		{"llm-safety", cfg.LLMSafety},
 		{"llm-order", cfg.LLMOrder},
 		{"llm-timeout", cfg.LLMTimeout},
+		{"prompt-url", fmt.Sprintf("%q", cfg.PromptURL)},
 		{"room", fmt.Sprintf("%q", cfg.Room)},
 		{"actions-file", fmt.Sprintf("%q", cfg.ActionsFile)},
 		{"log-level", cfg.LogLevel},

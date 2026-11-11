@@ -11,7 +11,8 @@
 - Device suffixes follow the system device order. Reconnecting a device can change which suffix points to which device.
 - After an audio device disconnects, the client does not reopen it. Restart the assistant.
 - The local model can choose the wrong exposed device or answer incorrectly. Use `VOICE_LLM_SAFETY=guard`, unexpose devices it must not control, or disable it with `VOICE_LLM_MODE=off`.
-- The model has no internet access and no conversation state. It answers only from the snapshot it receives.
+- The model has no internet access or conversation state. General answers use its own knowledge; state answers use the snapshot it receives.
+- Prompt changes apply when the assistant restarts.
 - Learning matches the whole normalized sentence, so a rephrasing is a new entry. Negative feedback applies only to the last local action within 60 seconds.
 - The room comes from `VOICE_ROOM` and matches device names, not Home Assistant areas.
 - The catalog changes at most every 30 seconds after an entity changes.

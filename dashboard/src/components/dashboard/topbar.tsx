@@ -37,6 +37,7 @@ const pageLabels: Record<string, string> = {
   "/servicios": "Servicios",
   "/registros": "Registros",
   "/notificaciones": "Notificaciones",
+  "/settings": "Settings",
 };
 
 export function Topbar() {

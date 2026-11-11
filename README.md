@@ -63,7 +63,7 @@ The examples above are not a command list. Ask the time, control an exposed devi
 
 ## Dashboard
 
-The M4nhattan dashboard (`dashboard/`) shows service status, memory, logs and notifications. It starts with the voice services and listens on http://127.0.0.1:3005. See [dashboard/README.md](dashboard/README.md).
+The M4nhattan dashboard (`dashboard/`) shows service status, memory, logs and notifications. It also has a Settings page for the language model prompt. It starts with the voice services and listens on http://127.0.0.1:3005. See [dashboard/README.md](dashboard/README.md).
 
 ## Client commands
 

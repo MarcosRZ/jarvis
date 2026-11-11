@@ -447,8 +447,10 @@ type fakeInterpreter struct {
 	texts    []string
 	devices  [][]Device
 	contexts []string
+	answers  []string
 	commands []Command
 	reply    string
+	answer   string
 	err      error
 }
 
@@ -463,6 +465,11 @@ func (f *fakeInterpreter) InterpretContext(_ context.Context, text string, devic
 	f.devices = append(f.devices, devices)
 	f.contexts = append(f.contexts, homeContext)
 	return Interpretation{Commands: f.commands, Reply: f.reply}, f.err
+}
+
+func (f *fakeInterpreter) InterpretAnswer(_ context.Context, text, _ string) (string, error) {
+	f.answers = append(f.answers, text)
+	return f.answer, f.err
 }
 
 // fakeContext returns the configured read-only Home Assistant context.
@@ -653,17 +660,43 @@ func TestHandleGivesContextToModelAndSpeaksReply(t *testing.T) {
 	}
 }
 
-func TestHandleRejectsReplyWithoutContext(t *testing.T) {
+func TestHandleAnswersWithoutContext(t *testing.T) {
 	devices := &fakeDevices{}
 	h := newHandler(t, devices)
 	interp := &fakeInterpreter{reply: "Sí, va a llover."}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "¿Va a llover?"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "¿Va a llover?"); got != interp.reply {
+		t.Errorf("reply %q, want %q", got, interp.reply)
 	}
 	if len(devices.calls) != 0 {
 		t.Errorf("device calls %v, want none", devices.calls)
+	}
+}
+
+func TestHandleAnswersGeneralRequest(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	interp := &fakeInterpreter{answer: "Un chiste corto."}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "cuéntame un chiste"); got != interp.answer {
+		t.Errorf("reply %q, want %q", got, interp.answer)
+	}
+	if len(interp.answers) != 1 || interp.answers[0] != "cuéntame un chiste" {
+		t.Errorf("answers %v", interp.answers)
+	}
+}
+
+func TestHandleRejectsParaphrasedEcho(t *testing.T) {
+	devices := &fakeDevices{}
+	h := newHandler(t, devices)
+	h.UseContext(&fakeContext{text: "weather.forecast_casa: lluvioso"})
+	interp := &fakeInterpreter{reply: "¿Puedo pasar yo por correos?"}
+	h.UseInterpreter(interp, InterpretFallback)
+
+	if got := h.Handle(context.Background(), "¿Puedo pasar yo por correos entonces?"); got != ReplyUnknown {
+		t.Errorf("reply %q, want %q", got, ReplyUnknown)
 	}
 }
 

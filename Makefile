@@ -59,7 +59,7 @@ llm-model:
 	fi
 
 services-up: llm-model
-	cd $(SERVER_DIR) && docker compose up -d --wait
+	cd $(SERVER_DIR) && docker compose up -d --build --wait
 
 services-down:
 	cd $(SERVER_DIR) && $(HA_COMPOSE) down

@@ -208,6 +208,12 @@ type ContextInterpreter interface {
 	InterpretContext(ctx context.Context, text string, devices []Device, context string) (Interpretation, error)
 }
 
+// AnswerInterpreter answers an unresolved sentence without choosing an action.
+// It is the fallback for conversation that no device action can satisfy.
+type AnswerInterpreter interface {
+	InterpretAnswer(ctx context.Context, text, homeContext string) (string, error)
+}
+
 // ContextProvider returns the read-only Home Assistant context for a model.
 type ContextProvider interface {
 	Context(ctx context.Context) (string, error)
@@ -648,17 +654,19 @@ func (h *Handler) interpretReasoned(ctx context.Context, text string, blocked *l
 	if !LooksLikeQuestion(text) {
 		interpreted, ok = h.askActions(ctx, text, homeContext)
 	}
-	if !ok {
-		if len(devices) == 0 {
-			return Interpretation{}, false
-		}
+	if !ok && len(devices) > 0 {
 		interpreted, ok = h.askInterpreter(ctx, text, devices, devices, homeContext)
+	}
+	if !ok && (!LooksLikeQuestion(text) || len(devices) == 0) {
+		if reply, answered := h.askAnswer(ctx, text, homeContext); answered {
+			interpreted, ok = Interpretation{Reply: reply}, true
+		}
 	}
 	if !ok {
 		return Interpretation{}, false
 	}
 	if len(interpreted.Commands) == 0 {
-		if !h.acceptsReply(text, interpreted.Reply, homeContext) {
+		if !h.acceptsReply(text, interpreted.Reply) {
 			if h.logger != nil {
 				h.logger.Log(ctx, slog.LevelDebug, "reasoned rejected", "safety", h.actionSafety, "kind", "reply")
 			}
@@ -1137,6 +1145,26 @@ func (h *Handler) askInterpreter(ctx context.Context, text string, devices, allo
 	return got, true
 }
 
+// askAnswer asks for a general answer after the action paths found nothing.
+func (h *Handler) askAnswer(ctx context.Context, text, homeContext string) (string, bool) {
+	answerer, ok := h.interpreter.(AnswerInterpreter)
+	if !ok {
+		return "", false
+	}
+	reply, err := answerer.InterpretAnswer(ctx, text, homeContext)
+	if err != nil {
+		if h.logger != nil {
+			h.logger.Warn("language model", "error", err)
+		}
+		return "", false
+	}
+	reply = strings.TrimSpace(reply)
+	if reply == "" {
+		return "", false
+	}
+	return reply, true
+}
+
 // homeContext returns the Home Assistant context for the model. A failure is
 // not fatal: the model still gets the devices and can answer nothing from the
 // missing context.
@@ -1154,29 +1182,46 @@ func (h *Handler) homeContext(ctx context.Context) string {
 	return strings.TrimSpace(homeContext)
 }
 
-// acceptsReply reports whether a model reply is safe to speak. Replies need
-// read-only context, are limited in length, and are only used for a question
-// that does not name a device or ask for a physical fix. The model decides
-// whether the context contains the answer; the handler only rejects an
-// ungrounded attempt.
-func (h *Handler) acceptsReply(text, reply, homeContext string) bool {
+// acceptsReply reports whether a model reply is safe to speak. Replies are
+// limited in length, must not be an echo of the sentence, and are not used for
+// a sentence that names a device or asks for a physical fix. General answers do
+// not need Home Assistant context.
+func (h *Handler) acceptsReply(text, reply string) bool {
 	reply = strings.TrimSpace(reply)
-	if reply == "" || homeContext == "" || len([]rune(reply)) > maxReplyRunes {
+	if reply == "" || len([]rune(reply)) > maxReplyRunes {
 		return false
 	}
 	if !strings.ContainsFunc(reply, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
 		return false
 	}
-	if normalize(reply) == normalize(text) {
-		return false
-	}
-	if !looksLikeQuestion(text) {
+	if replyEchoes(text, reply) {
 		return false
 	}
 	if _, ok := h.namedDevice(text); ok {
 		return false
 	}
 	return physicalIntent(text) == intentNone
+}
+
+// replyEchoes reports whether most words of the reply also appear in the
+// sentence. It rejects a model that parrots the question with small changes,
+// which the old exact-match check missed.
+func replyEchoes(text, reply string) bool {
+	replyWords := strings.Fields(normalize(reply))
+	if len(replyWords) < 2 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(replyWords))
+	for _, w := range strings.Fields(normalize(text)) {
+		seen[w] = struct{}{}
+	}
+	common := 0
+	for _, w := range replyWords {
+		if _, ok := seen[w]; ok {
+			common++
+		}
+	}
+	return float64(common)/float64(len(replyWords)) >= 0.8
 }
 
 // allowInterpreted drops a command with a device that is not in the allowlist
