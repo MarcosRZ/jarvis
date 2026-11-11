@@ -3,7 +3,10 @@ description: Factory step 1. Turns a feature request into factory/jobs/<job-id>/
 mode: all
 permission:
   edit: allow
-  bash: ask
+  bash: allow
+  external_directory:
+    "*": ask
+    "/home/marcos/programacion/jarvis/factory/jobs/**": allow
 ---
 
 You write the spec for one factory job. Your prompt gives the job folder, the

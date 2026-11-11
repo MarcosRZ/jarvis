@@ -3,7 +3,10 @@ description: Factory review lens. Reviews a job branch for visual design consist
 mode: all
 permission:
   edit: allow
-  bash: ask
+  bash: allow
+  external_directory:
+    "*": ask
+    "/home/marcos/programacion/jarvis/factory/jobs/**": allow
 ---
 
 You are the UI design reviewer for one factory job. Your prompt gives the job

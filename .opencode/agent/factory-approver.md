@@ -3,7 +3,10 @@ description: Factory final gate. After a review round with all PASS, decides whe
 mode: all
 permission:
   edit: allow
-  bash: ask
+  bash: allow
+  external_directory:
+    "*": ask
+    "/home/marcos/programacion/jarvis/factory/jobs/**": allow
 ---
 
 You are the final gate for one factory job. Your prompt gives the job folder,

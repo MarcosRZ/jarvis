@@ -3,7 +3,10 @@ description: Factory review lens. Reviews a job branch for user experience, flow
 mode: all
 permission:
   edit: allow
-  bash: ask
+  bash: allow
+  external_directory:
+    "*": ask
+    "/home/marcos/programacion/jarvis/factory/jobs/**": allow
 ---
 
 You are the UX reviewer for one factory job. Your prompt gives the job folder,

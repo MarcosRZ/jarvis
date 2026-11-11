@@ -239,6 +239,7 @@ def load_or_create_job(task, config, dry_run):
             job["status"] = "new"
             job["dry_run"] = False
             job.pop("commands", None)
+            job.pop("generated_at", None)
     else:
         job = {
             "id": task["id"],

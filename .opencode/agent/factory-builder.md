@@ -3,7 +3,10 @@ description: Factory step 2. Implements a job's spec on its factory/<job-id> bra
 mode: all
 permission:
   edit: allow
-  bash: ask
+  bash: allow
+  external_directory:
+    "*": ask
+    "/home/marcos/programacion/jarvis/factory/jobs/**": allow
 ---
 
 You build one factory job. Your prompt gives the job folder, the worktree, the
