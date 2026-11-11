@@ -1,5 +1,9 @@
 # Agent instructions
 
+## Language
+
+- Write everything in the repository in English: code, comments, documentation, UI copy, commit messages, and any other content.
+
 ## Home Assistant
 
 - The local Home Assistant setup (`server/homeassistant`, `make ha-up`, `make services-up`) is **for tests only**.

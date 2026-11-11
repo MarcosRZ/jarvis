@@ -1,83 +1,61 @@
 # Commands
 
-`internal/commands` is the boundary between the recognized text and any action:
+There is no fixed list of phrases. A sentence passes through these layers:
 
-1. **Parse** (`Handler.Parse`): the text is normalized (lowercase, no accents, no punctuation, single spaces) and compared with a fixed list of phrases for time, repeat, cancel, help and "mal". Device sentences are not parsed by a hardcoded grammar: they stay `unknown`. Parse has no side effects.
-2. **Execute** (`Handler.Execute`): runs the command and returns the spoken reply. Only `turn-on` and `turn-off` with a device from the allowlist reach a device controller; an `action` reaches the catalog executor after the action and entity are checked again.
-3. **Resolve** (`Handler.Handle`): a sentence the fixed parser does not resolve goes to learned memory, a deterministic light-state phrase, a deterministic catalog match, Home Assistant, or the local language model; see [Action catalog](#action-catalog), [Home Assistant conversation fallback](#home-assistant-conversation-fallback) and [Language model](#language-model).
+1. **Built-in intents.** Time, repeat, cancel, help and feedback. They are matched locally and deterministically, including a sound-alike correction for misheard words.
+2. **Learned associations.** A single action that already succeeded for the same sentence.
+3. **Action catalog.** A known verb plus the name, alias or entity ID of exactly one exposed entity. It runs locally, before Home Assistant and the model.
+4. **Home Assistant conversation.** Handles the rest, including parameters and questions, using the configured agent.
+5. **Local model.** Optional. It receives the safe action catalog and a read-only snapshot of exposed states and forecasts, and can choose up to four actions or answer a question from the snapshot.
 
-The text never selects a program, a shell command, a URL or an ID. The fixed parser needs no model; the optional [language model](#language-model) can choose `turn_on`/`turn_off` for an allowlisted device or one stable action ID from the generated catalog, never a service, an entity ID or an argument.
-
-| Kind | Phrases (after normalization) | Reply |
-|---|---|---|
-| `time` | "que hora es", "que horas son", "que hora son", "dime la hora", "dime que hora es", "me dices la hora", "puedes decirme la hora", "sabes que hora es", "que hora es ya", and the Whisper errors "que horas", "que ahora es" | "Son las 10 y cuarto.", "Es la una en punto." (12-hour spoken Spanish) |
-| `repeat` | "repite lo que he dicho", "repite", "repitelo" | "Has dicho: <your previous text>", or "Todavía no has dicho nada." |
-| `cancel` | "cancela", "cancelar", "olvidalo" | "Vale, cancelado." |
-| `help` | "que puedes hacer", "que sabes hacer", "ayuda" | the list of commands, and the allowlisted devices if there are any |
-| `turn-on`, `turn-off` | not produced by the fixed parser; they come from learned memory, a deterministic light-state phrase, or the [language model](#language-model) | "Hecho." or "No he podido encender la luz de la cocina." |
-| `action` | not produced by the fixed parser; it comes from a deterministic [catalog](#action-catalog) match, learned memory, or the [language model](#language-model) | "Hecho." or "No he podido activar Cine." |
-| `penalty` | "mal", "esta mal", "eso esta mal", "te has equivocado", "equivocado", "no es eso", "incorrecto" | "Lo siento. Lo tendré en cuenta." or "No hay nada que corregir." |
-| `unknown` | everything else, including sentences that name a device | "Todavía no sé hacer eso." No action, unless learned memory, the deterministic light-state phrases, the [Home Assistant conversation fallback](#home-assistant-conversation-fallback) or the [language model](#language-model) handle it. |
-
-"Repite" repeats the last text that was not itself a repeat, so two repeats give the same text. Filler words such as "por favor" are ignored, so "Apaga el ventilador, por favor" is the same command as "Apaga el ventilador".
-
-**Device allowlist.** A device has an `ID` for the controller (for example `light.kitchen`) and a spoken `Name` with its article (for example `la luz de la cocina`). `commands.New` rejects an allowlist with an empty ID or name, a name with characters other than letters, digits and spaces, or two names that are the same after normalization. The names and IDs are sent to the language model and the controller; the fixed parser never selects a device.
-
-**Misheard words.** The fixed phrases are still corrected by sound (`commands/match.go`): when "¿Qué ora es?" does not match exactly, the parser takes the phrase that sounds most alike. It compares them without spaces, because Whisper joins and splits words, and after Spanish sound rules (z/c→s, v→b, silent h, ll→y, final m→n, and more). The score is 1 minus the edit distance divided by the longer length. Only the fixed phrases can be chosen; device sentences are left for Home Assistant or the model. Each guess is logged as `msg=guess heard=... meant=... score=... used=...`, at info level with `--log-transcripts` and at debug level otherwise.
-
-**Device controller and conversation.** `commands.DeviceController` has one method, `SetPower(ctx, id, on)`. It receives only IDs from the allowlist. `commands.Conversation` has one method, `Converse(ctx, text)`, which returns the reply, whether Home Assistant handled the sentence, and an error. The unit tests use fakes that record each call and can fail. Without `--ha-url`, `run` has no allowlist, controller or conversation, and device commands reply "Todavía no puedo controlar dispositivos." With `--ha-url`, the allowlist and the controller come from Home Assistant, and the same adapter provides the conversation fallback (see [home-assistant.md](home-assistant.md)).
-
-**Allowlist from a source.** `Handler.UseSource` makes `Handle` read the allowlist again from a `DeviceSource` when the last read is older than a set time. When the source fails, the last list stays in use. `Handler.SetDevices` leaves out a device with a bad name (for example `Entrance Color + White Lights`) and reports it once per new list; the other devices stay usable. A name that starts with an article is spoken with a lowercase article: "La luz de la cocina" gives "No he podido encender la luz de la cocina."
-
-**Several fixed clauses.** `ParseAll` splits text on "y" and "e" and keeps the parts only when every part is a fixed command: "¿Qué hora es y qué puedes hacer?" gives the time and then the help text. A sentence with a device such as "Enciende la luz de la cocina y apaga la luz del salón" is not split by the fixed parser; the whole sentence goes to learned memory, Home Assistant or the language model. If any part is not a fixed command, the whole text stays one unresolved sentence.
+The deterministic catalog always runs first. `VOICE_LLM_ORDER` chooses Home Assistant first (default) or the model first for the remaining sentences.
 
 ## Action catalog
 
-`internal/actions` turns the exposed entities into a list of safe actions, and the handler uses it for every exposed controllable domain, not only lights and switches. An action is data: a stable ID, a Spanish name and description, one entity, one Home Assistant service and fixed arguments. There is no script, shell, URL or free-form service in the catalog.
+`voice-client actions` prints the catalog generated from the exposed entities. Each action is data: a stable ID, one entity, one Home Assistant service and fixed arguments. There is no script, shell command, URL or free-form service in the catalog.
 
-The catalog is generated from `GET /api/states` and the exposure list at start and when the last read is older than 30 s. It includes an entity only when its domain has a generator and its state is not `unavailable`; read-only entities stay in the model context but have no actions. The generated domains are light, switch, input_boolean, fan, cover, valve, lock, scene, script, automation, button, climate, water_heater, media_player, vacuum, humidifier, siren, remote, timer and select/input_select. For example, a media player gets turn_on, turn_off, play, pause, stop, volume_up, volume_down, mute and unmute; a climate gets turn_on/off plus one action per `hvac_modes` value, with the mode in `data`.
+Supported domains include light, switch, input_boolean, fan, cover, valve, lock, scene, script, automation, button, climate, water_heater, media_player, vacuum, humidifier, siren, remote, timer and select. Read-only entities are visible to the model but have no actions.
 
-`voice-client actions` writes a snapshot to `--actions-file` (`VOICE_ACTIONS_FILE`, default `client/data/actions.json`, git-ignored) and prints the count and the list. The assistant does not read that file at runtime: `Handler.UseActionSource` regenerates the catalog from Home Assistant. `SetActions` rejects an action with a bad ID, entity, service or arguments and reports it once; the valid actions stay. The command needs `VOICE_HA_URL` and `VOICE_HA_TOKEN`, like `run`.
-
-A sentence is matched deterministically first: every clause joined by "y" or "e" needs a known verb and the name, entity ID or alias of exactly one action, and all matched actions run in order, before Home Assistant and the model. A single-action sentence is learned; a sentence with several actions is not stored as one association. If a clause is ambiguous or the verb is outside the vocabulary ("prepara la escena", "pon el aire a 22 grados"), the sentence follows the fallback order: Home Assistant first, then the model by default (`model-first` reverses that); the model receives the catalog with the read-only context and can return one or more IDs, up to four. The JSON schema is an enum of the current IDs and allows `maxItems: 4`; the handler checks each ID against the current catalog and the safety guard, and `ExecuteAction` checks it again before `POST /api/services/<domain>/<service>`. The model cannot add an entity, a service or an argument, and a removed action stops working at the next refresh.
-
-The log line `msg=catalog` shows a deterministic match; `msg=action source=catalog` records each service call; `msg=reasoned action=...` records an action that the model chose. For a single-action match, learning stores `action=<id>` instead of a device; `mal` penalizes the last local action as usual.
-
-## Home Assistant conversation fallback
-
-With `--ha-url`, a sentence that the fixed parser, learned memory, the deterministic light-state phrases and the deterministic catalog match do not resolve is sent to the Home Assistant conversation API (`POST /api/conversation/process`). This is how the assistant handles sentences outside the catalog and how it answers questions such as weather. Examples: "Pon el aire a 22 grados" (a setpoint, which the catalog does not generate), "Pon el canal 5 en la tele" (no channel action), "¿Qué tiempo hace?" (weather).
-
-The fallback runs after the fixed parser, learned memory, the deterministic light-state phrases and the deterministic catalog match. For an unresolved sentence it runs before the local language model by default; if Home Assistant does not handle it, the local model gets one attempt with the action catalog and a read-only snapshot of the exposed entities and forecasts. `VOICE_LLM_ORDER=model-first` reverses that order. If Home Assistant returns `response_type: error` (no intent match) or is unavailable, the handler continues with the next fallback and the usual reply. The reply speech is spoken as Home Assistant writes it. When Home Assistant cannot answer a question such as "¿Va a llover?", the local model may answer it from that snapshot; this is not an action and is not learned.
-
-`VOICE_HA_AGENT` (`--ha-agent`) selects the conversation agent, for example `conversation.ollama`; empty uses the Home Assistant default agent (`home_assistant`). `VOICE_STT_LANGUAGE` is sent as the language. The available actions and parameters are those of that agent, and the exposure settings of the `conversation` assistant are the allowlist. If the agent is cloud-based, the sentence leaves your network. "Mal" and learning apply only to actions that run locally (the device and catalog paths); a sentence handled by Home Assistant is not stored.
+The catalog is rebuilt at start and when the last read is older than 30 seconds. A new, removed or unavailable entity can take up to 30 seconds to change the local actions.
 
 ## Language model
 
-The fixed parser is fast, deterministic and stays first. With `VOICE_LLM_URL` set, a local llama.cpp server (`server/compose.yaml`) can interpret any unresolved sentence that is not in learned memory. `VOICE_LLM_MODE` sets when it is asked:
+`VOICE_LLM_MODE=fallback` asks the model only when the built-in parser, learned memory and catalog do not resolve the sentence. `off` disables it.
 
-| Mode | When the model runs |
+The model never receives the Home Assistant token, service names, URLs or unexposed entities. Its answer is constrained to the current action IDs or to `turn_on`/`turn_off` for an allowlisted light or switch. The client checks every answer again before running it.
+
+`VOICE_ROOM` tells the model where the assistant is, so "here" means that room. The room is matched against device names; Home Assistant areas are not used.
+
+## Safety
+
+`VOICE_LLM_SAFETY` controls inferred actions:
+
+| Value | Behavior |
 |---|---|
-| `off` | never |
-| `fallback` (default) | when `ParseAll` returns one `unknown` command |
+| `guard` | Accept an action only when the sentence names the entity or action; risky domains also need a matching verb |
+| `literal` | Accept any action the model returns |
+| `states` | Accept only physical-state sentences, such as too much or too little light |
 
-`VOICE_LLM_SAFETY` decides which inferred actions run: `guard` (default) accepts a catalog action when the sentence names its entity, action or alias and, for locks, covers, valves, climate, water heaters, scenes, scripts, automations, buttons, sirens, remotes and vacuums, uses a known verb that matches the action; a light/switch device is accepted when the sentence names it; a physical state is accepted only when the chosen device can fix it. `literal` accepts any model action; `states` accepts only a physical-state sentence. `VOICE_LLM_ORDER` decides the order between the model and Home Assistant for a sentence that the deterministic catalog match did not resolve: `ha-first` (default) asks Home Assistant first and the model after it fails; `model-first` asks the model first and Home Assistant when the model finds no accepted action. The deterministic catalog match runs before both.
-
-When the model runs for a sentence that is not a question and the catalog is not empty, it receives the action IDs, names, descriptions and aliases and may choose one or more actions, in the requested order, up to four. If the catalog is empty, or the catalog answer is dropped, it receives the lights/switches prompt and can choose a device. Some common light phrases ("no veo nada", "no veo bien", "no hay luz", "no puedo ver", "está muy oscuro", "hay poca luz", "necesito luz", "hay demasiada luz", "me sobra luz", "está muy claro", "hay mucho brillo", "me deslumbra") are resolved deterministically instead: the light whose name contains `VOICE_ROOM` is chosen and the action runs at once. This works even if the model is off and avoids the small model reading "no" as turn_off. For any other unresolved sentence the handler applies `VOICE_LLM_ORDER`: `ha-first` asks Home Assistant, then the local model; `model-first` asks the model, then Home Assistant. The actions run at once, like a command that names the device, but `VOICE_LLM_SAFETY` discards each one when the sentence does not name its entity/action and is not a matching physical state. The assistant keeps no conversation state: there is no confirmation question.
-
-`VOICE_ROOM` (`--room`) tells the model where the assistant is, for example `Salon`. It resolves "aquí" and "en esta habitación" to that room. The examples in the prompt use the light whose name contains the room ("la luz del salón"), which is how the model picks a device for "hay demasiada luz aquí". Without `VOICE_ROOM`, the model may still interpret a state, but it does not know the room. The room is matched against the device name; Home Assistant areas are not used yet.
-
-With `--ha-url`, the model also receives a read-only context: every entity exposed to the `conversation` assistant, its state and selected attributes, and hourly (or daily) forecasts for exposed `weather.*` entities. The snapshot is capped at 50 entities and 4 forecast entries. It never contains the Home Assistant token, services, URLs or unexposed entities. The model can return a short reply when the snapshot answers a question; the handler speaks it only when the sentence is a question, the snapshot is not empty, and the sentence does not name a device or ask for a physical fix. Without context, or when the context does not contain the answer, the model must return no reply. With the 0.5B model the reply is best effort; it can echo the question or read the wrong row, and the handler rejects only the clearly unusable answers. The snapshot is fetched fresh for that sentence and is not cached; learned actions still use the local store, but replies are not stored. The server default is `LLM_CTX_SIZE=4096`, because a 2048-token window is not enough for the command prompt plus a large snapshot; if you have an older `server/.env` with `LLM_CTX_SIZE=2048`, raise it or turn the model off.
-
-The fixed commands (time, repeat, cancel, help) stay deterministic: the model is not asked for them, and if it returns one the handler discards it. A device sentence that neither Home Assistant nor the model can resolve still follows `VOICE_LLM_ORDER`; if both fail, the reply is "Todavía no sé hacer eso." The model gets the action catalog (or the allowlisted lights and switches when the catalog is empty), and `VOICE_LLM_SAFETY` decides whether its answer runs. A positive sentence in learned memory does not reach the model; a punished entry only drops the local action, so with `ha-first` the sentence can still go to Home Assistant.
-
-The model is not a general chat or internet model: it sees only the devices, the action catalog and the read-only snapshot that the handler sends, has no internet access, and the JSON schema allows one or more action IDs from the current catalog, or `turn_on`/`turn_off` for allowlisted devices. It can answer a question only when the snapshot contains the answer, for example the exposed forecast for "¿Va a llover?". A direct request to port 8080 can still invent an answer (for example, a date). By default Home Assistant is asked first; the model is the second attempt for an action, and it answers a question only from the snapshot. The command prompt contains the action IDs, names, descriptions and aliases, or the allowlisted lights and switches as IDs and spoken names; the question prompt contains the snapshot. The JSON schema constrains action answers to those IDs (enum, `maxItems: 4`) or devices, and allows a short `reply`. The client checks each action again against the current catalog and each device against the allowlist; the handler applies the safety guard. The model never receives the Home Assistant token, a service name, a URL or a shell command. An action with an unknown ID or device is discarded, as is a reply without context, longer than 600 characters, empty of letters and digits, an echo of the question, or for a sentence that names a device. The 0.5B model can still ignore the context or answer badly; if it does not produce a usable reply, the assistant says it does not know. The inferred actions run in the requested order, and an action rejected by the guard is skipped. Actions inferred from an unresolved sentence run without a confirmation, so a wrong inference will act on the wrong device; the catalog limits actions to the entities that you exposed, but it includes locks, covers, valves, scenes, scripts and climate when they are exposed. The guard and the verb rule reduce this risk; unexpose a device that the local model must not control, or use the Home Assistant conversation agent for it. A reply is only spoken; it never runs an action.
-
-`fallback` adds no latency to fixed commands. A deterministic catalog match also adds no model latency; only an ambiguous catalog phrase reaches the model. `model-first` adds the model latency to every unresolved sentence, so `ha-first` is the default. One model command answer takes about 2 to 10 s on a small CPU; a context question has a larger prompt and can take longer. `VOICE_LLM_TIMEOUT` (default `30s`) bounds an answer. If the model is down or times out, the error is logged and the Home Assistant answer or the unresolved reply is used. The log line `msg=conversation source=homeassistant` marks a sentence handled by Home Assistant; `msg=reasoned` shows an accepted action or reply from the model, at info level with `--log-transcripts` and at debug level otherwise. A rejected model action or reply is logged as `reasoned rejected` at debug level, so a rejected inference never looks like an accepted action. The info-level `msg=action` line records every local call that "Hecho." refers to, with `source` (`direct`, `catalog`, `reasoned`, `state` or `learned`), `kind`, `device`, `name`, `ok` and `duration`; errors add `error`. `msg=catalog` marks the deterministic catalog match. A Home Assistant action has no `msg=action` line because Home Assistant runs it. The settings are in [configuration.md](configuration.md).
+The default `guard` rejects chat and unclear sentences. A wrong inference is still possible, so unexpose any device the local model must not control.
 
 ## Learning and feedback
 
-A local catalog or inferred action is a success when no punishment follows. The handler stores the normalized sentence without fillers and the device or catalog action ID in a JSON file; a sentence with several actions is not stored, because one entry is one association (`VOICE_LEARNING_FILE`, default `client/data/learning.json`; the file is written atomically with mode 0600, and its directory is git-ignored). A single-action sentence then runs from the local store without asking the model, which removes the 2 to 10 s model latency. A repeated success adds one point; a different action replaces the association and starts again at one point. A model reply is not stored, because a forecast or a state can change; only actions are learned.
+A local action counts as a success unless you give negative feedback within 60 seconds. The feedback phrase is currently `mal`.
 
-Say the wake word and then "mal" within 60 seconds to punish the last action. The handler undoes the success counted when the action ran and sets the entry score to -1, so even a long success streak cannot keep the punished action in use. A negative entry is not reused, and its action is dropped from the model's answer: the assistant will not repeat the punished action for that sentence. The Home Assistant conversation agent keeps its own state and does not see this store. If the model chooses another action, the association is replaced; if it returns nothing, the reply is "Todavía no sé hacer eso." This is how a correction changes the learned behavior. "Mal" does not undo the action already sent to Home Assistant.
+Learned sentences are stored in `VOICE_LEARNING_FILE` with mode `0600`. A repeated success raises the score. Negative feedback sets the score to `-1`, so the action is not repeated. A different action replaces the association. Only actions are learned; replies are not, because states and forecasts change.
 
-The store is keyed by the whole normalized sentence, so a rephrasing is a new entry. Only actions with `source=catalog`, `reasoned`, `state` or `learned` are learned. The logs show `msg=learning result=success|penalty score=... successes=... failures=... device=... kind=...`, with `action=...` for a catalog action, `msg=feedback result=penalty ... learned=...`, and `msg=reasoned source=learned score=...` when a learned sentence is used. The text itself is not in these lines; the `msg=heard` line has it when transcripts are enabled.
+A sentence with several actions is not stored as one association. Set `VOICE_LEARNING_FILE=off` to disable learning.
+
+## Logs
+
+| Line | Meaning |
+|---|---|
+| `msg=heard` | Recognized text; only with transcripts enabled |
+| `msg=catalog` | Deterministic catalog match |
+| `msg=conversation` | Handled by Home Assistant |
+| `msg=reasoned` | Action or reply accepted from the model |
+| `msg=action` | Local device or catalog call |
+| `msg=learning` | Learned association changed |
+| `msg=guess` | Sound-alike correction |
+
+Rejected model answers are logged as `reasoned rejected` at debug level.
