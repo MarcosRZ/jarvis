@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Jarvis factory</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #121820;
+      --panel-2: #18212c;
+      --border: #263241;
+      --text: #e6edf5;
+      --muted: #93a4b8;
+      --accent: #6ee7b7;
+      --blue: #7dd3fc;
+      --amber: #fbbf24;
+      --red: #fb7185;
+      --green: #4ade80;
+      --purple: #c4b5fd;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 24px;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 36px 24px 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    button {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:hover {
+      border-color: var(--accent);
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px 48px;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 22px;
+    }
+
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .stat-value {
+      margin-top: 4px;
+      font-size: 24px;
+      font-weight: 650;
+    }
+
+    .jobs {
+      display: grid;
+      gap: 14px;
+    }
+
+    .job {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px;
+    }
+
+    .job-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .job-title {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: -0.01em;
+    }
+
+    .job-id {
+      margin: 2px 0 0;
+      color: var(--muted);
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+
+    .badge {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .badge.queued { color: var(--blue); border-color: #1e4d6b; background: #0c2230; }
+    .badge.running { color: var(--amber); border-color: #5b4513; background: #2a2008; }
+    .badge.needs-human { color: var(--red); border-color: #5e2430; background: #2a1015; }
+    .badge.done { color: var(--green); border-color: #1f5133; background: #0c2417; }
+    .badge.failed, .badge.cancelled { color: var(--red); border-color: #5e2430; background: #2a1015; }
+    .badge.dry-run { color: var(--purple); border-color: #3f3466; background: #1b1630; }
+    .badge.muted { color: var(--muted); }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .meta strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    details {
+      margin-top: 12px;
+      border-top: 1px solid var(--border);
+      padding-top: 10px;
+    }
+
+    summary {
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    pre {
+      margin: 10px 0 0;
+      padding: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      background: #0a0e13;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: #cbd5e1;
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .error {
+      margin: 18px 0 0;
+      padding: 14px;
+      border: 1px solid #5e2430;
+      border-radius: 10px;
+      background: #2a1015;
+      color: #fecdd3;
+      white-space: pre-wrap;
+    }
+
+    .empty {
+      padding: 36px;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .hint {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    code {
+      font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    @media (max-width: 760px) {
+      header {
+        flex-direction: column;
+        padding-top: 24px;
+      }
+
+      .summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .job-head {
+        flex-direction: column;
+      }
+
+      .badges {
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Factory queue</h1>
+      <p class="subtitle" id="subtitle">Loading queue...</p>
+    </div>
+    <div class="header-actions">
+      <button type="button" id="refresh">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <p class="hint">Serve this folder with <code>python3 -m http.server</code> from <code>factory/</code>.</p>
+    <section class="summary" id="summary" aria-label="Queue summary"></section>
+    <section class="jobs" id="jobs" aria-live="polite"></section>
+    <p class="error" id="error" hidden></p>
+  </main>
+
+  <script>
+    const QUEUE_URL = "queue.json";
+    const STATUS_ORDER = ["running", "queued", "needs-human", "failed", "cancelled", "done"];
+    const SUMMARY_STATUSES = ["queued", "running", "needs-human", "done", "total"];
+
+    const summaryEl = document.getElementById("summary");
+    const jobsEl = document.getElementById("jobs");
+    const errorEl = document.getElementById("error");
+    const subtitleEl = document.getElementById("subtitle");
+    const refreshEl = document.getElementById("refresh");
+
+    function statusOf(item) {
+      return item.job?.status || item.task?.status || "unknown";
+    }
+
+    function label(value) {
+      if (!value) return "Unknown";
+      return value.replaceAll("-", " ");
+    }
+
+    function badge(value, extraClass = "") {
+      const el = document.createElement("span");
+      el.className = `badge ${value} ${extraClass}`.trim();
+      el.textContent = label(value);
+      return el;
+    }
+
+    function stat(labelText, value) {
+      const box = document.createElement("div");
+      box.className = "stat";
+      const name = document.createElement("div");
+      name.className = "stat-label";
+      name.textContent = labelText;
+      const count = document.createElement("div");
+      count.className = "stat-value";
+      count.textContent = String(value);
+      box.append(name, count);
+      return box;
+    }
+
+    function metaItem(name, value) {
+      const el = document.createElement("span");
+      const strong = document.createElement("strong");
+      strong.textContent = `${name}: `;
+      el.append(strong, document.createTextNode(value || "—"));
+      return el;
+    }
+
+    function formatDate(value) {
+      if (!value) return "—";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString();
+    }
+
+    function detail(summaryText, text) {
+      const box = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = summaryText;
+      const pre = document.createElement("pre");
+      pre.textContent = text;
+      box.append(summary, pre);
+      return box;
+    }
+
+    function jobCard(item) {
+      const task = item.task || {};
+      const job = item.job;
+      const card = document.createElement("article");
+      card.className = "job";
+
+      const head = document.createElement("div");
+      head.className = "job-head";
+
+      const titleBox = document.createElement("div");
+      const title = document.createElement("h2");
+      title.className = "job-title";
+      title.textContent = task.title || job?.title || task.id;
+      const id = document.createElement("p");
+      id.className = "job-id";
+      id.textContent = task.id;
+      titleBox.append(title, id);
+
+      const badges = document.createElement("div");
+      badges.className = "badges";
+      badges.append(badge(task.status || "queued"));
+      const jobStatus = statusOf(item);
+      if (jobStatus !== (task.status || "queued")) {
+        badges.append(badge(jobStatus));
+      }
+
+      head.append(titleBox, badges);
+      card.append(head);
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.append(
+        metaItem("Priority", String(task.priority ?? 0)),
+        metaItem("Attempts", String(job?.attempts ?? task.attempts ?? 0)),
+        metaItem("Round", String(job?.round ?? "—")),
+        metaItem("Updated", formatDate(job?.updated_at || task.created_at)),
+      );
+      card.append(meta);
+
+      if (job) {
+        const jobMeta = document.createElement("div");
+        jobMeta.className = "meta";
+        jobMeta.append(
+          metaItem("Branch", job.branch),
+          metaItem("Worktree", job.worktree),
+          metaItem("Checks", job.checks ? (job.checks.ok ? "pass" : "fail") : "—"),
+          metaItem("Decision", job.decision?.verdict || "—"),
+        );
+        card.append(jobMeta);
+      }
+
+      if (job?.last_error) {
+        card.append(detail("Last error", job.last_error));
+      }
+      if (task.request) {
+        card.append(detail("Request", task.request));
+      }
+      if (job?.checks?.log) {
+        card.append(detail("Checks log", job.checks.log));
+      }
+
+      return card;
+    }
+
+    function sortItems(items) {
+      return items.sort((a, b) => {
+        const aStatus = a.task?.status || "queued";
+        const bStatus = b.task?.status || "queued";
+        const aOrder = STATUS_ORDER.indexOf(aStatus);
+        const bOrder = STATUS_ORDER.indexOf(bStatus);
+        if (aOrder !== bOrder) {
+          return (aOrder === -1 ? 99 : aOrder) - (bOrder === -1 ? 99 : bOrder);
+        }
+        const priority = (b.task?.priority ?? 0) - (a.task?.priority ?? 0);
+        if (priority !== 0) return priority;
+        return String(a.task?.created_at || "").localeCompare(String(b.task?.created_at || ""));
+      });
+    }
+
+    async function fetchJob(id) {
+      const response = await fetch(`jobs/${encodeURIComponent(id)}/job.json`, { cache: "no-store" });
+      if (response.status === 404) return null;
+      if (!response.ok) throw new Error(`job ${id}: HTTP ${response.status}`);
+      return response.json();
+    }
+
+    async function load() {
+      errorEl.hidden = true;
+      refreshEl.disabled = true;
+      try {
+        const response = await fetch(QUEUE_URL, { cache: "no-store" });
+        if (!response.ok) throw new Error(`queue.json: HTTP ${response.status}`);
+        const queue = await response.json();
+        const tasks = Array.isArray(queue.tasks) ? queue.tasks : [];
+        const items = await Promise.all(
+          tasks.map(async (task) => {
+            try {
+              return { task, job: await fetchJob(task.id) };
+            } catch (error) {
+              return { task, job: null, error: error.message };
+            }
+          }),
+        );
+
+        sortItems(items);
+        summaryEl.replaceChildren(
+          ...SUMMARY_STATUSES.map((status) => {
+            const count = status === "total"
+              ? items.length
+              : items.filter((item) => (item.task?.status || "queued") === status).length;
+            return stat(status, count);
+          }),
+        );
+
+        const jobErrors = items.filter((item) => item.error).map((item) => item.error);
+        if (jobErrors.length > 0) {
+          errorEl.hidden = false;
+          errorEl.textContent = jobErrors.join("\n");
+        }
+
+        jobsEl.replaceChildren();
+        if (items.length === 0) {
+          const empty = document.createElement("div");
+          empty.className = "empty";
+          empty.textContent = "No tasks in the queue.";
+          jobsEl.append(empty);
+        } else {
+          jobsEl.append(...items.map(jobCard));
+        }
+
+        subtitleEl.textContent = `Queue updated ${formatDate(queue.updated_at)} · ${items.length} task${items.length === 1 ? "" : "s"}`;
+      } catch (error) {
+        errorEl.hidden = false;
+        errorEl.textContent = error.message;
+        subtitleEl.textContent = "Could not load the queue.";
+      } finally {
+        refreshEl.disabled = false;
+      }
+    }
+
+    refreshEl.addEventListener("click", load);
+    load();
+    setInterval(() => {
+      if (!document.hidden) load();
+    }, 5000);
+  </script>
+</body>
+</html>

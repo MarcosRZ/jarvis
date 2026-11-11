@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "example-task",
+      "title": "Example task",
+      "request": "Add a short note to the dashboard README that explains where the settings page lives.",
+      "status": "queued",
+      "priority": 0,
+      "depends_on": [],
+      "created_at": "2026-11-11T00:00:00+00:00",
+      "attempts": 0
+    }
+  ]
+}

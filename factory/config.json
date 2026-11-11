@@ -1,0 +1,43 @@
+{
+  "concurrency": 1,
+  "max_rounds": 3,
+  "max_resumes": 2,
+  "base_branch": "main",
+  "auto_merge": false,
+  "push": false,
+  "require_clean_main": true,
+  "queue_file": "factory/queue.json",
+  "jobs_dir": "factory/jobs",
+  "worktrees_dir": ".factory/worktrees",
+  "logs_dir": "factory/logs",
+  "lock_file": ".factory/runner.lock",
+  "checks": "factory/checks.sh",
+  "checks_timeout_seconds": 1200,
+  "agent_timeout_seconds": 3600,
+  "reviewers": {
+    "security": "factory-reviewer-security",
+    "ux": "factory-reviewer-ux",
+    "ui": "factory-reviewer-ui",
+    "code": "factory-reviewer-code"
+  },
+  "agents": {
+    "spec": "factory-spec-writer",
+    "builder": "factory-builder",
+    "approver": "factory-approver"
+  },
+  "ports": {
+    "base": 5100,
+    "step": 10
+  },
+  "protected_paths": [
+    "factory/checks.sh",
+    "factory/config.json",
+    "factory/runner.py",
+    "factory/PLAN.md",
+    "server/compose.yaml",
+    "server/.env.example",
+    "dashboard/Dockerfile",
+    "dashboard/compose.yaml",
+    ".github/**"
+  ]
+}
