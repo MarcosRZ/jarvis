@@ -82,7 +82,7 @@ data.
   - Verification: job reaches `needs-human` or `merged` with all artifacts and
     checks passing.
 
-- [ ] **CP6 - M4nhattan real-data design task**
+- [x] **CP6 - M4nhattan real-data design task**
   - Add a design/ADR task to the queue: data source, Docker access model,
     contracts, failure states and security.
   - Run only the design/spec part and stop for human approval.
@@ -90,21 +90,33 @@ data.
     task is queued.
 
 - [ ] **CP7 - Autonomy hardening**
+  - Status: blocked on the CP6 design decisions. Do not enable concurrency or
+    auto-merge yet.
+  - Done: unattended `--all`, agent/check timeouts, stage logs, dashboard
+    auto-refresh, recoverable `needs-human` state.
+  - Remaining: retries, deliberate-failure verification, concurrency, and an
+    explicit low-risk auto-merge policy.
   - Enable concurrency only after CP5 and CP6 pass.
-  - Add retries, timeouts, logs and a queue dashboard refresh.
   - Consider auto-merge only for low-risk, explicitly marked tasks.
   - Verification: a deliberate failure leaves state recoverable and a restart
     resumes the queue without duplicating work.
 
 ## Current state
 
-- Current checkpoint: CP5 complete, CP6 queued.
-- Next action: run the `real-data-design` task and inspect the design artifact.
+- Current checkpoint: CP6 design complete, escalated for human decisions; CP7
+  hardening is not started.
+- Next action: answer the three design decisions in
+  `factory/jobs/real-data-design/decision.md`; then merge or revise
+  `factory/real-data-design` before queuing migration code.
 - Pilot: `prompt-api-docs` reached `needs-human` with `APPROVE`, then was merged
   as `30a4fae`. The queue task and job are `done`.
-- Auto-merge: disabled. This merge was a manual decision after the pilot.
-- Queue: `factory/queue.json` has `real-data-design` queued with a dependency on
-  the completed pilot; `factory/queue.example.json` remains the schema example.
+- Design: `real-data-design` reached `needs-human` with `ESCALATE`. The ADR is
+  `docs/m4nhattan-real-data.md` on branch `factory/real-data-design` (HEAD
+  `b605f35`); all four reviews passed, checks passed, and the worktree is
+  clean. The branch is not merged.
+- Auto-merge: disabled.
+- Queue: `prompt-api-docs` is `done`; `real-data-design` is `needs-human`.
+  `factory/queue.example.json` remains the schema example.
 - Known requirement: commit `.opencode` and `AGENTS.md` before a real job run.
   The runner stops at `needs-human` if the worktree lacks the agents.
 
@@ -142,3 +154,10 @@ python3 factory/runner.py --all   # run ready tasks until the queue is empty
 - 2026-11-11: Pilot merged as `30a4fae`; queue and job are `done`. Added
   `--all` to run ready tasks until the queue is empty. CP6 is queued as
   `real-data-design`, depending on the pilot.
+- 2026-11-11: CP6 completed the design task. The ADR is on
+  `factory/real-data-design` (`b605f35`, two docs commits), all four reviews
+  passed, checks passed, and the approver returned `ESCALATE`. Reason: the ADR
+  assumes a privileged Docker-socket collector (A1), localhost-only/no-auth v1
+  (A2), and derived notifications with no server persistence (A5). No
+  migration code was queued and the branch is not merged. CP7 remains blocked
+  on those decisions; `--all` unattended execution is already in place.

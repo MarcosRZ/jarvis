@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated_at": "2026-11-11T20:34:16+00:00",
+  "updated_at": "2026-11-11T21:37:26+00:00",
   "tasks": [
     {
       "id": "prompt-api-docs",
@@ -20,13 +20,16 @@
       "id": "real-data-design",
       "title": "Design M4nhattan real data",
       "request": "Write a design/ADR for replacing the M4nhattan dashboard's mock service, log and notification data with real data. Do not change runtime code, dashboard components or compose files. Cover: candidate data sources (Home Assistant, Docker, host processes and existing server endpoints), how the dashboard container reaches them without exposing the Docker socket, API contracts and TypeScript data types, refresh or streaming strategy, loading/empty/failure states, localhost/no-auth security limits, and a recommended migration path with follow-up tasks. Produce `docs/m4nhattan-real-data.md`, referencing the current `dashboard/src/lib/mock-data.ts` shapes and relevant docs. Include alternatives, open questions and explicit non-goals. Keep it actionable, in English, and do not implement the migration.",
-      "status": "queued",
+      "status": "needs-human",
       "priority": 0,
       "depends_on": [
         "prompt-api-docs"
       ],
       "created_at": "2026-11-11T20:34:16+00:00",
-      "attempts": 0
+      "attempts": 2,
+      "started_at": "2026-11-11T21:33:08+00:00",
+      "finished_at": "2026-11-11T21:37:26+00:00",
+      "last_error": null
     }
   ]
 }
