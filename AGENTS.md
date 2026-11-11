@@ -17,7 +17,8 @@
 
 - Add tasks to `factory/queue.json`; `factory/queue.example.json` shows the
   schema.
-- Run one job with `python3 factory/runner.py`, or inspect the commands with
+- Run one job with `python3 factory/runner.py`; run every ready job until the
+  queue is empty with `python3 factory/runner.py --all`. Inspect commands with
   `python3 factory/runner.py --dry-run --queue factory/queue.example.json`.
 - Worktrees come from the base branch. Commit `.opencode` and `AGENTS.md` before
   a real run, or the runner stops the job at `needs-human`.

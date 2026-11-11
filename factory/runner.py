@@ -744,19 +744,26 @@ def acquire_lock(path):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Run one jarvis factory job.")
+    parser = argparse.ArgumentParser(description="Run jarvis factory jobs.")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--queue", help="queue file to use instead of the configured one")
     parser.add_argument("--task", help="task id to run instead of the next ready task")
     parser.add_argument("--dry-run", action="store_true", help="write state and print commands")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="run ready tasks until the queue has no ready work",
+    )
     args = parser.parse_args(argv)
+    if args.all and args.dry_run:
+        parser.error("--all cannot be combined with --dry-run")
+    if args.all and args.task:
+        parser.error("--all cannot be combined with --task")
 
     lock = None
     config = None
     queue = None
     queue_path = None
-    task = None
-    commands = []
     try:
         config_path = Path(args.config)
         if not config_path.is_absolute():
@@ -765,47 +772,67 @@ def main(argv=None):
         lock = acquire_lock(resolve_path(config["lock_file"]))
         queue_path = Path(args.queue).resolve() if args.queue else resolve_path(config["queue_file"])
         queue = load_queue(queue_path)
-        task = select_task(queue, args.task)
-        if task is None:
-            print("no ready tasks")
-            return 0
-        if not args.dry_run:
-            if not shutil.which("opencode"):
-                raise RunnerError("opencode is not installed")
-            if task.get("status") not in {"queued", "running"}:
-                raise RunnerError(f"task {task['id']} is {task.get('status')}")
-            done = {item["id"] for item in queue["tasks"] if item.get("status") == "done"}
-            missing = [dep for dep in task.get("depends_on", []) if dep not in done]
-            if missing:
-                raise RunnerError(f"task dependencies are not done: {', '.join(missing)}")
-            set_task(
-                queue_path,
-                queue,
-                task,
-                "running",
-                started_at=utc_now(),
-                finished_at=None,
-                last_error=None,
-                attempts=int(task.get("attempts", 0)) + 1,
-            )
-        run_job(task, queue, queue_path, config, args.dry_run, commands)
-        return 0
-    except RunnerError as exc:
-        if not args.dry_run and config is not None and task is not None and queue is not None:
-            candidate = resolve_path(config["jobs_dir"]) / task["id"] / "job.json"
-            if candidate.exists():
-                try:
-                    job = read_json(candidate)
-                    mark_needs_human(
-                        queue,
+
+        while True:
+            task = select_task(queue, args.task)
+            if task is None:
+                print("no ready tasks")
+                return 0
+            commands = []
+            try:
+                if not args.dry_run:
+                    if not shutil.which("opencode"):
+                        raise RunnerError("opencode is not installed")
+                    if task.get("status") not in {"queued", "running"}:
+                        raise RunnerError(f"task {task['id']} is {task.get('status')}")
+                    done = {
+                        item["id"]
+                        for item in queue["tasks"]
+                        if item.get("status") == "done"
+                    }
+                    missing = [
+                        dep for dep in task.get("depends_on", []) if dep not in done
+                    ]
+                    if missing:
+                        raise RunnerError(
+                            f"task dependencies are not done: {', '.join(missing)}"
+                        )
+                    set_task(
                         queue_path,
+                        queue,
                         task,
-                        job,
-                        candidate.parent,
-                        str(exc),
+                        "running",
+                        started_at=utc_now(),
+                        finished_at=None,
+                        last_error=None,
+                        attempts=int(task.get("attempts", 0)) + 1,
                     )
-                except RunnerError:
-                    pass
+                run_job(task, queue, queue_path, config, args.dry_run, commands)
+            except RunnerError as exc:
+                marked = False
+                if not args.dry_run and config is not None:
+                    candidate = resolve_path(config["jobs_dir"]) / task["id"] / "job.json"
+                    if candidate.exists():
+                        try:
+                            job = read_json(candidate)
+                            mark_needs_human(
+                                queue,
+                                queue_path,
+                                task,
+                                job,
+                                candidate.parent,
+                                str(exc),
+                            )
+                            marked = True
+                        except RunnerError:
+                            pass
+                print(f"runner: {exc}", file=sys.stderr)
+                if not args.all or not marked:
+                    return 1
+            if not args.all:
+                return 0
+            queue = load_queue(queue_path)
+    except RunnerError as exc:
         print(f"runner: {exc}", file=sys.stderr)
         return 1
     finally:

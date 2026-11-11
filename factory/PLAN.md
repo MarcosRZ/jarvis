@@ -98,15 +98,13 @@ data.
 
 ## Current state
 
-- Current checkpoint: CP5 complete.
-- Next action: human review and merge of `factory/prompt-api-docs`, then CP6
-  real-data design task.
-- Pilot: `prompt-api-docs` reached `needs-human` with `APPROVE`. Branch
-  `factory/prompt-api-docs` is at `f36a696`; checks passed, all four round-1
-  reviews passed, and the worktree is clean.
-- Auto-merge: disabled. The pilot branch is not merged.
-- Queue: `factory/queue.json` holds the completed `prompt-api-docs` task in
-  `needs-human`; `factory/queue.example.json` remains the schema example.
+- Current checkpoint: CP5 complete, CP6 queued.
+- Next action: run the `real-data-design` task and inspect the design artifact.
+- Pilot: `prompt-api-docs` reached `needs-human` with `APPROVE`, then was merged
+  as `30a4fae`. The queue task and job are `done`.
+- Auto-merge: disabled. This merge was a manual decision after the pilot.
+- Queue: `factory/queue.json` has `real-data-design` queued with a dependency on
+  the completed pilot; `factory/queue.example.json` remains the schema example.
 - Known requirement: commit `.opencode` and `AGENTS.md` before a real job run.
   The runner stops at `needs-human` if the worktree lacks the agents.
 
@@ -116,6 +114,7 @@ data.
 factory/checks.sh                 # Go checks + dashboard lint/build
 opencode agent list               # factory agents load
 python3 factory/runner.py --dry-run --queue factory/queue.example.json
+python3 factory/runner.py --all   # run ready tasks until the queue is empty
 ```
 
 ## Log
@@ -140,3 +139,6 @@ python3 factory/runner.py --dry-run --queue factory/queue.example.json
   fixes: builder/reviewers run `factory/checks.sh` from the worktree, and the
   approver is told not to read `factory/logs` or the main checkout because
   external-directory permissions auto-reject it.
+- 2026-11-11: Pilot merged as `30a4fae`; queue and job are `done`. Added
+  `--all` to run ready tasks until the queue is empty. CP6 is queued as
+  `real-data-design`, depending on the pilot.
