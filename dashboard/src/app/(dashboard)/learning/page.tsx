@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Ban,
   BrainCircuit,
@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -51,33 +52,6 @@ const sourceLabel: Record<string, string> = {
 
 type Filter = "all" | "active" | "penalized";
 
-function SelectAllCheckbox({
-  checked,
-  indeterminate,
-  onChange,
-}: {
-  checked: boolean;
-  indeterminate: boolean;
-  onChange: () => void;
-}) {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (ref.current) {
-      ref.current.indeterminate = indeterminate;
-    }
-  }, [indeterminate]);
-  return (
-    <input
-      ref={ref}
-      type="checkbox"
-      checked={checked}
-      onChange={onChange}
-      aria-label={checked ? "Clear selection" : "Select all visible associations"}
-      className="size-4 cursor-pointer accent-primary"
-    />
-  );
-}
-
 function EntryRow({
   entry,
   selected,
@@ -102,13 +76,11 @@ function EntryRow({
   const copyHref = `/learning/edit?copy=${encodeURIComponent(entry.text)}`;
   return (
     <TableRow className={selected ? "bg-muted/40" : undefined}>
-      <TableCell className="w-10 pl-4">
-        <input
-          type="checkbox"
+      <TableCell className="w-10 pl-4 align-middle">
+        <Checkbox
           checked={selected}
-          onChange={onToggle}
+          onCheckedChange={onToggle}
           aria-label={`Select ${entry.text}`}
-          className="size-4 cursor-pointer accent-primary"
         />
       </TableCell>
       <TableCell className="whitespace-normal py-3">
@@ -707,11 +679,21 @@ export default function LearningPage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-10 pl-4">
-                <SelectAllCheckbox
-                  checked={allVisibleSelected}
-                  indeterminate={someVisibleSelected}
-                  onChange={toggleAllVisible}
+              <TableHead className="w-10 pl-4 align-middle">
+                <Checkbox
+                  checked={
+                    allVisibleSelected
+                      ? true
+                      : someVisibleSelected
+                        ? "indeterminate"
+                        : false
+                  }
+                  onCheckedChange={toggleAllVisible}
+                  aria-label={
+                    allVisibleSelected
+                      ? "Clear selection"
+                      : "Select all visible associations"
+                  }
                 />
               </TableHead>
               <TableHead>Phrase</TableHead>
