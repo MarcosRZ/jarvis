@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -25,6 +26,13 @@ const (
 	haTimeout     = 5 * time.Second
 	deviceRefresh = 30 * time.Second
 	promptTimeout = 2 * time.Second
+
+	// The learning publisher checks for changes often, sends a heartbeat so the
+	// dashboard can tell a quiet client from a stopped one, and gives the
+	// dashboard a short timeout so a failure never touches the voice pipeline.
+	learningPublishCheck   = 5 * time.Second
+	learningHeartbeat      = 60 * time.Second
+	learningPublishTimeout = 3 * time.Second
 )
 
 // runAssistant connects the microphone, the voice services, the command
@@ -48,14 +56,19 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	if err != nil {
 		return stopCode(err, logger)
 	}
+	var learningStore *learning.Store
 	if cfg.LearningFile != "" {
 		store, err := learning.Open(cfg.LearningFile)
 		if err != nil {
 			logger.Warn("learning disabled", "file", cfg.LearningFile, "error", err)
 		} else {
 			handler.UseLearning(store)
+			learningStore = store
 			logger.Info("learning", "file", cfg.LearningFile, "entries", store.Len())
 		}
+	}
+	if learningStore != nil && cfg.LearningURL != "" {
+		go publishLearning(ctx, learningStore, cfg.LearningURL, logger)
 	}
 	// A guess has words of the command, which are private like the transcript.
 	guessLevel := slog.LevelDebug
@@ -162,4 +175,47 @@ func newCommandHandler(ctx context.Context, cfg config.Config, logger *slog.Logg
 	logger.Info("Home Assistant devices", "url", cfg.HAURL, "count", len(names), "names", strings.Join(names, ", "))
 	logger.Info("Home Assistant actions", "url", cfg.HAURL, "count", len(handler.Actions()))
 	return handler, nil
+}
+
+// publishLearning mirrors the learned associations to the dashboard without
+// blocking the voice pipeline. It sends at startup, after every change and on a
+// heartbeat, so the dashboard can tell a quiet client from a stopped one. A
+// repeated failure is logged once until a publish succeeds again.
+func publishLearning(ctx context.Context, store *learning.Store, url string, logger *slog.Logger) {
+	client := &http.Client{Timeout: learningPublishTimeout}
+	check := time.NewTicker(learningPublishCheck)
+	defer check.Stop()
+
+	var lastRevision uint64
+	var publishedAt time.Time
+	var lastError string
+	publish := func() {
+		// Read the revision before the snapshot: a change in between causes one
+		// extra publish instead of losing the change until the next heartbeat.
+		revision := store.Revision()
+		snapshot := store.Snapshot(time.Now())
+		if err := learning.Publish(ctx, client, url, snapshot); err != nil {
+			if message := err.Error(); message != lastError {
+				logger.Warn("learning snapshot", "url", url, "error", err)
+				lastError = message
+			}
+			return
+		}
+		lastRevision = revision
+		publishedAt = time.Now()
+		lastError = ""
+		logger.Debug("learning snapshot", "url", url, "entries", len(snapshot.Entries))
+	}
+
+	publish()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-check.C:
+			if store.Revision() != lastRevision || time.Since(publishedAt) >= learningHeartbeat {
+				publish()
+			}
+		}
+	}
 }

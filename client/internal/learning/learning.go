@@ -3,15 +3,24 @@
 package learning
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
+
+// SnapshotVersion is the schema version of the snapshot published to the
+// dashboard.
+const SnapshotVersion = 1
 
 // Entry is one learned sentence. Text is normalized by the caller. An entry
 // names either a device and its Kind ("turn-on" or "turn-off") or one action of
@@ -28,12 +37,21 @@ type Entry struct {
 	Updated   time.Time `json:"updated"`
 }
 
+// Snapshot is the read-only form of the store that the client publishes to the
+// dashboard. Text is recognized speech, so a snapshot is private data.
+type Snapshot struct {
+	Version     int       `json:"version"`
+	GeneratedAt time.Time `json:"generatedAt"`
+	Entries     []Entry   `json:"entries"`
+}
+
 // Store keeps the entries in memory and writes them to a JSON file after each
 // change. It is safe for concurrent use.
 type Store struct {
-	path    string
-	mu      sync.Mutex
-	entries map[string]Entry
+	path     string
+	mu       sync.Mutex
+	entries  map[string]Entry
+	revision uint64
 }
 
 type file struct {
@@ -112,6 +130,7 @@ func (s *Store) learn(text string, want Entry, now time.Time) (Entry, error) {
 	}
 	e.Updated = now
 	s.entries[text] = e
+	s.revision++
 	return e, s.saveLocked()
 }
 
@@ -141,15 +160,41 @@ func (s *Store) penalize(text string, want Entry, now time.Time) (Entry, bool, e
 	e.Score = -1
 	e.Updated = now
 	s.entries[text] = e
+	s.revision++
 	return e, true, s.saveLocked()
 }
 
-func (s *Store) saveLocked() error {
+// Snapshot returns a copy of every entry at now. The entries are sorted by
+// text so repeated snapshots of the same store are stable.
+func (s *Store) Snapshot(now time.Time) Snapshot {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return Snapshot{
+		Version:     SnapshotVersion,
+		GeneratedAt: now,
+		Entries:     s.sortedEntriesLocked(),
+	}
+}
+
+// Revision increases after every change to the entries. A publisher compares
+// it to avoid sending an identical snapshot at every tick.
+func (s *Store) Revision() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.revision
+}
+
+func (s *Store) sortedEntriesLocked() []Entry {
 	entries := make([]Entry, 0, len(s.entries))
 	for _, e := range s.entries {
 		entries = append(entries, e)
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Text < entries[j].Text })
+	return entries
+}
+
+func (s *Store) saveLocked() error {
+	entries := s.sortedEntriesLocked()
 	b, err := json.MarshalIndent(file{Entries: entries}, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode learning file: %w", err)
@@ -174,5 +219,37 @@ func (s *Store) saveLocked() error {
 	if err := os.Rename(name, s.path); err != nil {
 		return fmt.Errorf("replace learning file: %w", err)
 	}
+	return nil
+}
+
+// Publish posts one snapshot to url. The caller owns the HTTP client and its
+// timeout, so an unreachable dashboard cannot delay the voice pipeline.
+func Publish(ctx context.Context, client *http.Client, url string, snapshot Snapshot) error {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	body, err := json.Marshal(snapshot)
+	if err != nil {
+		return fmt.Errorf("encode learning snapshot: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create learning snapshot request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(request)
+	if err != nil {
+		return fmt.Errorf("publish learning snapshot: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		detail := strings.TrimSpace(string(message))
+		if detail == "" {
+			return fmt.Errorf("publish learning snapshot: %s", response.Status)
+		}
+		return fmt.Errorf("publish learning snapshot: %s: %s", response.Status, detail)
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
 	return nil
 }

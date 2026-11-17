@@ -38,6 +38,7 @@ const pageLabels: Record<string, string> = {
   "/": "General",
   "/servicios": "Servicios",
   "/actions": "Actions",
+  "/learning": "Learning",
   "/registros": "Registros",
   "/notificaciones": "Notificaciones",
   "/settings": "Settings",

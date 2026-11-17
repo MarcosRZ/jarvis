@@ -1,8 +1,13 @@
 package learning
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -153,5 +158,117 @@ func TestStoreAcceptsAnEmptyFile(t *testing.T) {
 	}
 	if store.Len() != 0 {
 		t.Fatalf("Len %d, want 0", store.Len())
+	}
+}
+
+func TestStoreSnapshotTracksChanges(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "learning.json"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.Local)
+	if got := store.Revision(); got != 0 {
+		t.Fatalf("revision %d, want 0", got)
+	}
+	if _, err := store.Learn("z apaga la luz", "light.z", "la luz z", "turn-off", now); err != nil {
+		t.Fatalf("Learn: %v", err)
+	}
+	if _, err := store.Learn("a enciende la luz", "light.a", "la luz a", "turn-on", now); err != nil {
+		t.Fatalf("Learn: %v", err)
+	}
+	if got := store.Revision(); got != 2 {
+		t.Fatalf("revision %d, want 2", got)
+	}
+
+	at := now.Add(time.Minute)
+	snapshot := store.Snapshot(at)
+	if snapshot.Version != SnapshotVersion {
+		t.Errorf("version %d, want %d", snapshot.Version, SnapshotVersion)
+	}
+	if !snapshot.GeneratedAt.Equal(at) {
+		t.Errorf("generatedAt %v, want %v", snapshot.GeneratedAt, at)
+	}
+	if len(snapshot.Entries) != 2 {
+		t.Fatalf("entries %d, want 2", len(snapshot.Entries))
+	}
+	if snapshot.Entries[0].Text != "a enciende la luz" || snapshot.Entries[1].Text != "z apaga la luz" {
+		t.Errorf("entries are not sorted by text: %+v", snapshot.Entries)
+	}
+
+	if _, ok, err := store.Penalize("missing", "light.a", "turn-on", at); err != nil || ok {
+		t.Fatalf("Penalize missing: ok %v, err %v", ok, err)
+	}
+	if got := store.Revision(); got != 2 {
+		t.Errorf("revision after a missed penalize %d, want 2", got)
+	}
+	if _, ok, err := store.Penalize("a enciende la luz", "light.a", "turn-on", at); err != nil || !ok {
+		t.Fatalf("Penalize: ok %v, err %v", ok, err)
+	}
+	if got := store.Revision(); got != 3 {
+		t.Errorf("revision after a penalize %d, want 3", got)
+	}
+	snapshot = store.Snapshot(at)
+	if snapshot.Entries[0].Score != -1 {
+		t.Errorf("penalized score %d, want -1", snapshot.Entries[0].Score)
+	}
+}
+
+func TestPublishPostsTheSnapshot(t *testing.T) {
+	var method, contentType string
+	var got Snapshot
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		method = r.Method
+		contentType = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode body: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(server.Close)
+
+	want := Snapshot{
+		Version:     SnapshotVersion,
+		GeneratedAt: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC),
+		Entries: []Entry{{
+			Text:      "apaga la luz",
+			Device:    "switch.luz",
+			Name:      "luz del salon",
+			Kind:      "turn-off",
+			Score:     2,
+			Successes: 2,
+			Updated:   time.Date(2026, 11, 17, 11, 59, 0, 0, time.UTC),
+		}},
+	}
+	if err := Publish(context.Background(), server.Client(), server.URL, want); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if method != http.MethodPost {
+		t.Errorf("method %q, want POST", method)
+	}
+	if contentType != "application/json" {
+		t.Errorf("content type %q, want application/json", contentType)
+	}
+	if got.Version != want.Version || !got.GeneratedAt.Equal(want.GeneratedAt) || len(got.Entries) != 1 {
+		t.Fatalf("published %+v, want %+v", got, want)
+	}
+	if got.Entries[0].Text != want.Entries[0].Text || got.Entries[0].Device != want.Entries[0].Device || got.Entries[0].Score != want.Entries[0].Score {
+		t.Errorf("published entry %+v, want %+v", got.Entries[0], want.Entries[0])
+	}
+}
+
+func TestPublishReportsAnErrorStatus(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "snapshot rejected", http.StatusBadRequest)
+	}))
+	t.Cleanup(server.Close)
+
+	err := Publish(context.Background(), server.Client(), server.URL, Snapshot{Version: SnapshotVersion})
+	if err == nil {
+		t.Fatal("Publish returned no error")
+	}
+	for _, want := range []string{"400", "snapshot rejected"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
 	}
 }

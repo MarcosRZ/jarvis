@@ -57,6 +57,7 @@ Every setting is listed with a comment in `client/.env.example` and `server/.env
 | `VOICE_PROMPT_URL` | Dashboard prompt endpoint; empty uses the built-in prompt |
 | `VOICE_ROOM` | Room used to resolve "here"; match it to a device name |
 | `VOICE_LEARNING_FILE` | Learned associations; `off` disables learning |
+| `VOICE_LEARNING_URL` | Dashboard snapshot endpoint; `off` disables publishing |
 | `VOICE_ACTIONS_FILE` | Snapshot written by `voice-client actions` |
 
 ### Logging and text
@@ -121,3 +122,17 @@ The prompt may use `{{context}}` where the read-only Home Assistant context
 should go. Without it, the context is appended. The JSON reply format is always
 appended. The editor shows the built-in prompt when no custom prompt is saved;
 `Reset to built-in` removes the custom prompt.
+
+## Learning snapshot
+
+The dashboard `Learning` page is fed by the client, not by the collector. The
+client posts a read-only JSON snapshot to `VOICE_LEARNING_URL` (default
+`http://127.0.0.1:3005/api/learning`) at startup, after a change and every 60
+seconds. Set it to `off`, or pass an empty `--learning-url`, to disable
+publishing. The dashboard stores the snapshot in the `dashboard-data` volume
+with mode `0600`.
+
+The phrases are recognized speech and can be private. The dashboard has no
+authentication; keep it on localhost or a trusted network. If the client runs on
+another machine, point `VOICE_LEARNING_URL` at the dashboard host and prefer
+HTTPS or a trusted private network.

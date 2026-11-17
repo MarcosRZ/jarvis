@@ -46,6 +46,7 @@ const (
 	EnvPromptURL        = "VOICE_PROMPT_URL"
 	EnvRoom             = "VOICE_ROOM"
 	EnvLearningFile     = "VOICE_LEARNING_FILE"
+	EnvLearningURL      = "VOICE_LEARNING_URL"
 	EnvActionsFile      = "VOICE_ACTIONS_FILE"
 	EnvLogLevel         = "VOICE_LOG_LEVEL"
 	EnvConnectTimeout   = "VOICE_CONNECT_TIMEOUT"
@@ -79,6 +80,7 @@ const (
 	flagPromptURL          = "prompt-url"
 	flagRoom               = "room"
 	flagLearningFile       = "learning-file"
+	flagLearningURL        = "learning-url"
 	flagActionsFile        = "actions-file"
 	flagLogLevel           = "log-level"
 	flagConnectTimeout     = "connect-timeout"
@@ -107,6 +109,7 @@ const (
 	defaultLLMTimeout         = 30 * time.Second
 	defaultPromptURL          = "http://127.0.0.1:3005/api/settings/prompt"
 	defaultLearningFile       = "client/data/learning.json"
+	defaultLearningURL        = "http://127.0.0.1:3005/api/learning"
 	defaultActionsFile        = "client/data/actions.json"
 	defaultTextAddr           = "127.0.0.1:8082"
 	defaultLogLevel           = slog.LevelInfo
@@ -159,6 +162,9 @@ type Config struct {
 	// LearningFile keeps the learned sentences and their feedback. Empty turns
 	// learning off.
 	LearningFile string
+	// LearningURL receives the read-only snapshot for the dashboard Learning
+	// page. Empty turns publishing off.
+	LearningURL string
 	// ActionsFile is where the actions command writes the generated catalog.
 	ActionsFile string
 	LogLevel    slog.Level
@@ -209,6 +215,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		PromptURL:          envOr(getenv, EnvPromptURL, defaultPromptURL),
 		Room:               strings.TrimSpace(getenv(EnvRoom)),
 		LearningFile:       envOr(getenv, EnvLearningFile, defaultLearningFile),
+		LearningURL:        envOr(getenv, EnvLearningURL, defaultLearningURL),
 		ActionsFile:        envOr(getenv, EnvActionsFile, defaultActionsFile),
 		LogLevel:           defaultLogLevel,
 		ConnectTimeout:     defaultConnectTimeout,
@@ -291,6 +298,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.StringVar(&cfg.PromptURL, flagPromptURL, cfg.PromptURL, usage("URL of the configurable language-model prompt; empty for the built-in prompt", EnvPromptURL))
 	fs.StringVar(&cfg.Room, flagRoom, cfg.Room, usage(`room where the assistant is, so that "aquí" means that room, for example Salón; empty when unknown`, EnvRoom))
 	fs.StringVar(&cfg.LearningFile, flagLearningFile, cfg.LearningFile, usage("JSON file for learned sentences and their feedback; empty to turn learning off", EnvLearningFile))
+	fs.StringVar(&cfg.LearningURL, flagLearningURL, cfg.LearningURL, usage("URL where the learning snapshot is published for the dashboard Learning page; off to disable", EnvLearningURL))
 	fs.StringVar(&cfg.ActionsFile, flagActionsFile, cfg.ActionsFile, usage("JSON file where the actions command writes the generated action catalog", EnvActionsFile))
 	fs.TextVar(&cfg.LogLevel, flagLogLevel, cfg.LogLevel, usage("debug, info, warn or error", EnvLogLevel))
 	fs.BoolVar(&cfg.LogTranscripts, flagLogTranscripts, cfg.LogTranscripts, usage("log what Whisper heard at info level; off, only at debug level", EnvLogTranscripts))
@@ -308,9 +316,13 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	cfg.Room = strings.TrimSpace(cfg.Room)
 	cfg.HAAgent = strings.TrimSpace(cfg.HAAgent)
 	cfg.LearningFile = strings.TrimSpace(cfg.LearningFile)
+	cfg.LearningURL = strings.TrimSpace(cfg.LearningURL)
 	cfg.ActionsFile = strings.TrimSpace(cfg.ActionsFile)
 	if strings.EqualFold(cfg.LearningFile, "off") || strings.EqualFold(cfg.LearningFile, "none") {
 		cfg.LearningFile = ""
+	}
+	if strings.EqualFold(cfg.LearningURL, "off") || strings.EqualFold(cfg.LearningURL, "none") {
+		cfg.LearningURL = ""
 	}
 	if mode := commands.InterpretMode(llmMode); !mode.Valid() {
 		errs = append(errs, fmt.Errorf("--%s (%s) %q: use off or fallback", flagLLMMode, EnvLLMMode, llmMode))
@@ -382,6 +394,11 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	if cfg.PromptURL != "" {
 		if u, err := url.Parse(cfg.PromptURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			errs = append(errs, fmt.Errorf("--%s (%s) %q: use http://host:port or https://host:port", flagPromptURL, EnvPromptURL, cfg.PromptURL))
+		}
+	}
+	if cfg.LearningURL != "" {
+		if u, err := url.Parse(cfg.LearningURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			errs = append(errs, fmt.Errorf("--%s (%s) %q: use http://host:port or https://host:port", flagLearningURL, EnvLearningURL, cfg.LearningURL))
 		}
 	}
 	if cfg.ConnectTimeout <= 0 {

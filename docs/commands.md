@@ -52,6 +52,8 @@ Learned sentences are stored in `VOICE_LEARNING_FILE` with mode `0600`. A repeat
 
 A sentence with several actions is not stored as one association. Set `VOICE_LEARNING_FILE=off` to disable learning.
 
+The dashboard `Learning` page mirrors the stored associations. The client publishes a read-only snapshot to `VOICE_LEARNING_URL` (default `http://127.0.0.1:3005/api/learning`) at startup, after a change and every 60 seconds. Set it to `off` to disable publishing. The page is display-only: it cannot verify that a target still exists, and a stopped client leaves the last snapshot visible until the dashboard marks it stale. The phrases are recognized speech, so keep the dashboard on localhost or a trusted network.
+
 ## Logs
 
 | Line | Meaning |

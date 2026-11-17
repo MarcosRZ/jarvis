@@ -62,6 +62,7 @@ func TestLoadDefaults(t *testing.T) {
 		LLMTimeout:         30 * time.Second,
 		PromptURL:          "http://127.0.0.1:3005/api/settings/prompt",
 		LearningFile:       "client/data/learning.json",
+		LearningURL:        "http://127.0.0.1:3005/api/learning",
 		ActionsFile:        "client/data/actions.json",
 		TextAddr:           "127.0.0.1:8082",
 		LogLevel:           slog.LevelInfo,
@@ -94,6 +95,7 @@ func TestLoadPrecedence(t *testing.T) {
 		EnvTTSSpeaker:         "M",
 		EnvRoom:               "Salón",
 		EnvLearningFile:       "/tmp/learning.json",
+		EnvLearningURL:        "http://learning.local:3005/api/learning",
 		EnvLogLevel:           "debug",
 		EnvConnectTimeout:     "5s",
 		EnvOperationTimeout:   "1m",
@@ -131,6 +133,7 @@ func TestLoadPrecedence(t *testing.T) {
 		LLMTimeout:         30 * time.Second,
 		PromptURL:          "http://prompt.local:3005/api/settings/prompt",
 		LearningFile:       "/tmp/learning.json",
+		LearningURL:        "http://learning.local:3005/api/learning",
 		ActionsFile:        "client/data/actions.json",
 		TextAddr:           "127.0.0.1:9999",
 		LogLevel:           slog.LevelDebug,
@@ -156,6 +159,25 @@ func TestLoadCanTurnLearningOff(t *testing.T) {
 		if cfg.LearningFile != "" {
 			t.Errorf("Load %q: LearningFile %q, want empty", value, cfg.LearningFile)
 		}
+	}
+}
+
+func TestLoadCanTurnLearningPublishingOff(t *testing.T) {
+	for _, value := range []string{"off", "none", "OFF"} {
+		cfg, err := load(nil, envFrom(map[string]string{EnvLearningURL: value}), io.Discard)
+		if err != nil {
+			t.Fatalf("Load %q: %v", value, err)
+		}
+		if cfg.LearningURL != "" {
+			t.Errorf("Load %q: LearningURL %q, want empty", value, cfg.LearningURL)
+		}
+	}
+	cfg, err := load([]string{"--learning-url", ""}, envFrom(nil), io.Discard)
+	if err != nil {
+		t.Fatalf("Load with an empty flag: %v", err)
+	}
+	if cfg.LearningURL != "" {
+		t.Errorf("empty flag: LearningURL %q, want empty", cfg.LearningURL)
 	}
 }
 
@@ -200,6 +222,7 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"ha token is not a flag", []string{"--ha-token", "secret"}, nil, []string{"ha-token"}},
 		{"llm url not http", []string{"--llm-url", "ftp://llm.local"}, nil, []string{"--llm-url", EnvLLMURL}},
 		{"prompt url not http", []string{"--prompt-url", "ftp://prompt.local"}, nil, []string{"--prompt-url", EnvPromptURL}},
+		{"learning url not http", []string{"--learning-url", "ftp://learning.local"}, nil, []string{"--learning-url", EnvLearningURL}},
 		{"llm mode unknown", nil, map[string]string{EnvLLMMode: "sometimes"}, []string{EnvLLMMode, "sometimes"}},
 		{"llm safety unknown", nil, map[string]string{EnvLLMSafety: "sometimes"}, []string{EnvLLMSafety, "sometimes"}},
 		{"llm order unknown", nil, map[string]string{EnvLLMOrder: "sometimes"}, []string{EnvLLMOrder, "sometimes"}},

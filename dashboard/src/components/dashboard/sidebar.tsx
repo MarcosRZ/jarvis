@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bell,
+  GraduationCap,
   LayoutDashboard,
   ListChecks,
   ScrollText,
@@ -25,6 +26,7 @@ const primaryNav: {
   { label: "General", href: "/", icon: LayoutDashboard },
   { label: "Servicios", href: "/servicios", icon: Server },
   { label: "Actions", href: "/actions", icon: ListChecks },
+  { label: "Learning", href: "/learning", icon: GraduationCap },
   { label: "Registros", href: "/registros", icon: ScrollText },
   {
     label: "Notificaciones",

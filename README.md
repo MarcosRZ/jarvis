@@ -63,7 +63,7 @@ The examples above are not a command list. Ask the time, control an exposed devi
 
 ## Dashboard
 
-The M4nhattan dashboard (`dashboard/`) shows live service status, memory, CPU, activity, logs, notifications and the action catalog generated from the exposed Home Assistant entities. A read-only collector service (`collector/`) provides the data without mounting the Docker socket in the dashboard. It also has a Settings page for the language model prompt. It starts with the voice services and listens on http://127.0.0.1:3005. See [dashboard/README.md](dashboard/README.md) and [docs/services.md](docs/services.md).
+The M4nhattan dashboard (`dashboard/`) shows live service status, memory, CPU, activity, logs, notifications, the action catalog generated from the exposed Home Assistant entities and the associations the voice assistant has learned. A read-only collector service (`collector/`) provides the data without mounting the Docker socket in the dashboard. It also has a Settings page for the language model prompt. It starts with the voice services and listens on http://127.0.0.1:3005. See [dashboard/README.md](dashboard/README.md) and [docs/services.md](docs/services.md).
 
 ## Client commands
 
