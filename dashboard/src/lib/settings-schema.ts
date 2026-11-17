@@ -375,7 +375,7 @@ export const settingsSections: SettingSection[] = [
     id: "client",
     title: "Client",
     description:
-      "Voice assistant settings. Home Assistant URL and token come from General. Restart make run to apply changes.",
+      "Voice assistant settings. Home Assistant URL and token come from General. Restart the assistant (make run) to apply changes.",
     fields: [
       {
         key: "VOICE_HA_AGENT",
@@ -587,7 +587,7 @@ export const settingsSections: SettingSection[] = [
       {
         key: "VOICE_ROOM",
         label: "Room",
-        description: "Room where the assistant is, so que aquí means that room.",
+        description: "Room where the assistant is, so that here means that room.",
         scope: "client",
         type: "text",
         placeholder: "Salon",
