@@ -1,9 +1,9 @@
 "use client";
 
-import { Radio, ScrollText } from "lucide-react";
+import { Radio } from "lucide-react";
 import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -90,8 +90,11 @@ function LogTable({
           </button>
         </div>
       )}
-      <ScrollArea className={heightClassName}>
-        <Table>
+      <ScrollArea
+        className={heightClassName}
+        scrollbars={["vertical", "horizontal"]}
+      >
+        <Table containerClassName="overflow-visible">
           <TableHeader className="sticky top-0 bg-card">
             <TableRow>
               <TableHead className="w-20 font-mono text-[10px] uppercase">
@@ -124,9 +127,7 @@ function LogTable({
                 <TableCell className="whitespace-nowrap py-2 text-muted-foreground">
                   {log.service}
                 </TableCell>
-                <TableCell className="max-w-[520px] truncate py-2">
-                  {log.message}
-                </TableCell>
+                <TableCell className="py-2">{log.message}</TableCell>
               </TableRow>
             ))}
             {entries.length === 0 && (
@@ -158,47 +159,38 @@ export function LogsPanel({
 
   return (
     <Card className="gap-0 py-0">
-      <CardHeader className="border-b p-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <ScrollText className="size-4 text-primary" />
-            <CardTitle className="text-sm">Registros</CardTitle>
-          </div>
-          {issue ? (
-            <Badge
-              variant="outline"
-              className="gap-1.5 rounded-none border-destructive/30 text-[10px] text-destructive"
-            >
-              unavailable
-            </Badge>
-          ) : (
-            <Badge
-              variant="outline"
-              className="gap-1.5 rounded-none border-emerald-500/30 text-[10px] text-emerald-600 dark:text-emerald-400"
-            >
-              <Radio className="size-2.5 animate-pulse" />
-              live
-            </Badge>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Ultimas entradas de todos los contenedores
-        </p>
-      </CardHeader>
       <CardContent className="p-0">
         <Tabs defaultValue="all" className="gap-0">
-          <div className="border-b px-3 py-2">
-            <TabsList variant="line" className="h-7">
-              {filters.map((filter) => (
-                <TabsTrigger
-                  key={filter.value}
-                  value={filter.value}
-                  className="h-7 px-2.5 text-xs"
-                >
-                  {filter.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          <div className="flex items-center justify-between gap-2 border-b px-3 py-2">
+            <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <TabsList variant="line" className="h-7">
+                {filters.map((filter) => (
+                  <TabsTrigger
+                    key={filter.value}
+                    value={filter.value}
+                    className="h-7 px-2.5 text-xs"
+                  >
+                    {filter.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+            {issue ? (
+              <Badge
+                variant="outline"
+                className="shrink-0 gap-1.5 rounded-none border-destructive/30 text-[10px] text-destructive"
+              >
+                unavailable
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="shrink-0 gap-1.5 rounded-none border-emerald-500/30 text-[10px] text-emerald-600 dark:text-emerald-400"
+              >
+                <Radio className="size-2.5 animate-pulse" />
+                live
+              </Badge>
+            )}
           </div>
           {filters.map((filter) => (
             <TabsContent key={filter.value} value={filter.value} className="m-0">
