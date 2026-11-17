@@ -108,7 +108,7 @@ function LogTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {entries.map((log) => (
+            {[...entries].reverse().map((log) => (
               <TableRow key={log.id} className="font-mono text-xs">
                 <TableCell className="whitespace-nowrap py-2 text-muted-foreground">
                   {formatClock(log.time)}
