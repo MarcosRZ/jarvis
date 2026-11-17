@@ -91,6 +91,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, getenv fu
 	if command == commandText {
 		fs.Var(&lines, flagText, "text to send to the running assistant; repeat the flag to send several texts in order")
 	}
+	if remote := fetchRemoteSettings(ctx, getenv, stderr); len(remote) > 0 {
+		base := getenv
+		getenv = func(key string) string {
+			if value, ok := remote[key]; ok {
+				return value
+			}
+			return base(key)
+		}
+	}
 	cfg, err := config.Load(fs, args[1:], getenv)
 	if errors.Is(err, flag.ErrHelp) {
 		return exitOK

@@ -1,8 +1,8 @@
 # M4nhattan dashboard
 
 Next.js dashboard for the M4nhattan services. Service, resource, activity, log,
-notification, action and learned-association data is live; prompt settings are
-stored on the host.
+notification, action and learned-association data is live; prompt and
+configuration overrides are stored on the host.
 
 ## Run
 
@@ -115,15 +115,32 @@ still loads, but the live data routes report the collector as unavailable.
 
 ## Settings
 
-Open http://127.0.0.1:3005/settings to edit the language model prompt. It is
-stored in the `dashboard-data` volume and served at `/api/settings/prompt`.
+Open http://127.0.0.1:3005/settings to edit the language model prompt and the
+per-section configuration overrides. Saved overrides live in
+`/data/settings.json` inside the `dashboard-data` volume with mode `0600`, not in
+the `.env` files: an empty field keeps using `server/.env` or `client/.env`.
 
-The client reads it at startup through `VOICE_PROMPT_URL` (default
-`http://127.0.0.1:3005/api/settings/prompt`). The editor shows the built-in
-prompt when no custom prompt is saved; `Reset to built-in` removes the custom
-prompt. `{{context}}` is replaced with the read-only Home Assistant context.
+Server and shared overrides are exported by `GET /api/settings/compose`.
+`make services-up` fetches and exports them before `docker compose`, so they win
+over `server/.env`; run it after saving. Client overrides are served by
+`GET /api/settings/client` and read by the assistant at startup through
+`VOICE_SETTINGS_URL`; restart `make run` to apply them. If the dashboard is
+unreachable, both fall back to the `.env` files.
 
-## Prompt settings API
+The prompt is stored separately in `/data/prompt.json` and served at
+`/api/settings/prompt`. The client reads it at startup through
+`VOICE_PROMPT_URL` (default `http://127.0.0.1:3005/api/settings/prompt`). The
+editor shows the built-in prompt when no custom prompt is saved; `Reset to
+built-in` removes the custom prompt. `{{context}}` is replaced with the read-only
+Home Assistant context.
+
+## Settings API
+
+`GET /api/settings` returns `{ "values": { ... } }` with the saved overrides.
+`POST /api/settings` takes the same shape, validates every key against the
+schema, and returns the saved values. Empty values are removed. `GET
+/api/settings/client` returns only the shared and client keys, and `GET
+/api/settings/compose` returns shell exports for the server and shared keys.
 
 `GET /api/settings/prompt` returns `{ "prompt": "..." }` with the saved prompt,
 or an empty string when no custom prompt is saved. `POST /api/settings/prompt`

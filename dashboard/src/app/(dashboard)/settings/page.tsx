@@ -1,14 +1,14 @@
 import { PageHeader } from "@/components/dashboard/page-header";
-import { PromptSettings } from "@/components/dashboard/prompt-settings";
+import { SettingsPanel } from "@/components/dashboard/settings-panel";
 
 export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Configure the language model prompt used for questions and conversation. Device actions keep their own safety rules."
+        description="General, per-service and voice client overrides. Empty fields keep using the .env files."
       />
-      <PromptSettings />
+      <SettingsPanel />
     </div>
   );
 }

@@ -66,7 +66,17 @@ llm-model:
 		mv $(LLM_MODEL).download $(LLM_MODEL); \
 	fi
 
+SETTINGS_URL ?=
+
 services-up: llm-model
+	@settings_url="$(SETTINGS_URL)"; \
+	if [ -z "$$settings_url" ]; then \
+		port="$$(sed -n 's/^DASHBOARD_PORT=//p' ./$(SERVER_DIR)/.env 2>/dev/null | tail -1 | tr -d '\r')"; \
+		port="$${port:-$${DASHBOARD_PORT:-3005}}"; \
+		settings_url="http://127.0.0.1:$$port/api/settings/compose"; \
+	fi; \
+	overrides="$$(curl -fsS --max-time 2 "$$settings_url" 2>/dev/null || true)"; \
+	if [ -n "$$overrides" ]; then eval "$$overrides"; fi; \
 	cd $(SERVER_DIR) && DOCKER_SOCKET_GID=$$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 973) docker compose up -d --build --wait
 
 services-down:

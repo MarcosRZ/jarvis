@@ -55,6 +55,7 @@ Every setting is listed with a comment in `client/.env.example` and `server/.env
 | `VOICE_LLM_SAFETY` | `guard` (default), `literal` or `states` |
 | `VOICE_LLM_TIMEOUT` | Timeout for one model answer |
 | `VOICE_PROMPT_URL` | Dashboard prompt endpoint; empty uses the built-in prompt |
+| `VOICE_SETTINGS_URL` | Dashboard settings overrides read at startup; empty or `off` disables the lookup |
 | `VOICE_ROOM` | Room used to resolve "here"; match it to a device name |
 | `VOICE_LEARNING_FILE` | Learned associations; `off` disables learning |
 | `VOICE_LEARNING_URL` | Dashboard snapshot and operation queue endpoint; `off` disables publishing and remote edits |
@@ -111,6 +112,31 @@ commands:
 | `VOICE_HA_TOKEN` | Long-lived token used by the collector; keep it aligned with `client/.env` |
 
 The remaining model and port settings are documented in `server/.env.example`.
+
+## Dashboard Settings overrides
+
+The Settings page at http://127.0.0.1:3005/settings edits overrides stored in
+`/data/settings.json` inside the `dashboard-data` volume (mode `0600`). The
+`.env` files remain the fallback: an empty field keeps the value from
+`server/.env` or `client/.env`.
+
+For server and shared values, `GET /api/settings/compose` returns exported
+variables. `make services-up` fetches them and exports them before running
+`docker compose`, so environment values win over `server/.env`. If the
+dashboard is not running yet, the fetch is skipped and `server/.env` is used;
+run `make services-up` again once the dashboard is up. The values are not
+written back to `server/.env`.
+
+For client values, `GET /api/settings/client` returns the overrides. The
+assistant reads them before the rest of the configuration when
+`VOICE_SETTINGS_URL` is set (default in `client/.env.example`:
+`http://127.0.0.1:3005/api/settings/client`). Restart `make run` after a change.
+If the dashboard is unreachable, the assistant uses `client/.env`.
+
+The HA URL and token are shared by the collector and the client. The settings
+endpoints can return the token, so keep the dashboard on localhost or a trusted
+network. Port changes require `make services-up`; the client sections require a
+client restart. The prompt keeps its own endpoint and file (`/data/prompt.json`).
 
 ## Prompt
 
