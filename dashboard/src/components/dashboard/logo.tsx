@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { cn } from "cn";
 
 export function Logo({
@@ -9,8 +10,15 @@ export function Logo({
 }) {
   return (
     <div className={cn("flex items-center gap-3", className)}>
-      <div className="flex size-10 shrink-0 items-center justify-center border-2 border-foreground bg-primary font-mono text-sm font-bold tracking-tighter text-primary-foreground">
-        M4
+      <div className="size-10 shrink-0 overflow-hidden border-2 border-foreground bg-primary">
+        <Image
+          src="/doctor-manhattan.jpg"
+          alt=""
+          width={80}
+          height={80}
+          priority
+          className="size-full object-cover"
+        />
       </div>
       {!compact && (
         <div className="flex min-w-0 flex-col">
