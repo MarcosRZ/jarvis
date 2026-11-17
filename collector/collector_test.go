@@ -22,6 +22,8 @@ type fakeDocker struct {
 	logErr     error
 	listErr    error
 	pingErr    error
+	restartID  string
+	restartErr error
 }
 
 func (f *fakeDocker) Ping(context.Context) error {
@@ -45,6 +47,11 @@ func (f *fakeDocker) ContainerLogs(_ context.Context, id string, _ time.Time, _ 
 		return nil, f.logErr
 	}
 	return f.logs[id], nil
+}
+
+func (f *fakeDocker) RestartContainer(_ context.Context, id string) error {
+	f.restartID = id
+	return f.restartErr
 }
 
 func (f *fakeDocker) Events(context.Context, time.Time, func(dockerEvent)) error {
@@ -262,6 +269,105 @@ func TestSnapshotHidesDevelopmentHomeAssistant(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("configured Home Assistant was not reported")
+	}
+}
+
+func TestRestartService(t *testing.T) {
+	now := time.Now().UTC()
+	started := now.Add(-time.Hour).Format(time.RFC3339Nano)
+	fake := &fakeDocker{
+		containers: []dockerContainer{
+			{ID: "p1", State: "exited", Labels: labels("piper")},
+			{ID: "w1", State: "running", Labels: labels("whisper")},
+		},
+		inspects: map[string]dockerInspect{
+			"w1": inspectFor(started, "healthy", 0, 0),
+			"p1": inspectFor(started, "", 0, 0),
+		},
+	}
+	app := newCollector(config{ComposeProject: "voice-assistant", RequestTimeout: time.Second, LogTail: 10}, fake, nil)
+
+	if err := app.RestartService(context.Background(), "whisper"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.restartID != "w1" {
+		t.Fatalf("restarted container = %q, want w1", fake.restartID)
+	}
+}
+
+func TestRestartServiceRejectsServicesWithoutAContainer(t *testing.T) {
+	cases := []struct {
+		name   string
+		id     string
+		fake   *fakeDocker
+		target error
+	}{
+		{
+			name:   "unknown service",
+			id:     "unknown",
+			fake:   &fakeDocker{},
+			target: ErrServiceNotFound,
+		},
+		{
+			name:   "external home assistant",
+			id:     "homeassistant",
+			fake:   &fakeDocker{containers: []dockerContainer{{ID: "ha1", State: "running", Labels: labels("homeassistant")}}},
+			target: ErrServiceNotFound,
+		},
+		{
+			name:   "the dashboard itself",
+			id:     "dashboard",
+			fake:   &fakeDocker{containers: []dockerContainer{{ID: "d1", State: "running", Labels: labels("dashboard")}}},
+			target: ErrServiceRestartNotAllowed,
+		},
+		{
+			name:   "service without a container",
+			id:     "piper",
+			fake:   &fakeDocker{containers: []dockerContainer{{ID: "w1", State: "running", Labels: labels("whisper")}}},
+			target: ErrServiceNotFound,
+		},
+		{
+			name: "container from another compose project",
+			id:   "piper",
+			fake: &fakeDocker{containers: []dockerContainer{{
+				ID:    "p1",
+				State: "running",
+				Labels: map[string]string{
+					"com.docker.compose.project": "other",
+					"com.docker.compose.service": "piper",
+				},
+			}}},
+			target: ErrServiceNotFound,
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			app := newCollector(config{ComposeProject: "voice-assistant", RequestTimeout: time.Second, LogTail: 10}, test.fake, nil)
+			err := app.RestartService(context.Background(), test.id)
+			if !errors.Is(err, test.target) {
+				t.Fatalf("error = %v, want %v", err, test.target)
+			}
+			if test.fake.restartID != "" {
+				t.Fatalf("unexpected restart of %q", test.fake.restartID)
+			}
+		})
+	}
+}
+
+func TestRestartServicePrefersTheRunningContainer(t *testing.T) {
+	fake := &fakeDocker{
+		containers: []dockerContainer{
+			{ID: "w1", State: "exited", Labels: labels("whisper")},
+			{ID: "w2", State: "running", Labels: labels("whisper")},
+		},
+		inspects: map[string]dockerInspect{"w2": inspectFor(time.Now().UTC().Format(time.RFC3339Nano), "healthy", 0, 0)},
+	}
+	app := newCollector(config{ComposeProject: "voice-assistant", RequestTimeout: time.Second, LogTail: 10}, fake, nil)
+	if err := app.RestartService(context.Background(), "whisper"); err != nil {
+		t.Fatal(err)
+	}
+	if fake.restartID != "w2" {
+		t.Fatalf("restarted container = %q, want w2", fake.restartID)
 	}
 }
 

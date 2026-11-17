@@ -24,7 +24,7 @@ Configuration comes from `server/.env`. Copy `server/.env.example` to `server/.e
 | Piper | 10200 | Speech output |
 | llama.cpp | 8080 | Optional local language model |
 | dashboard | 3005 | M4nhattan status dashboard |
-| collector | none (internal 8090) | Read-only Docker and Home Assistant collector for the dashboard |
+| collector | none (internal 8090) | Docker and Home Assistant collector, plus scoped service restarts, for the dashboard |
 | Home Assistant (dev) | 8123 | Development only, with `make ha-up` |
 
 Ports bind to `127.0.0.1` by default. Set `BIND_ADDRESS=0.0.0.0` only on a trusted network: the services have no authentication. Keep the model port on `127.0.0.1` unless another machine needs it (`LLM_BIND_ADDRESS`).
@@ -78,9 +78,11 @@ The editor shows the built-in prompt when no custom prompt is saved. `Reset to b
 
 ## Dashboard live data
 
-The dashboard does not have the Docker socket. The `collector` service is the only consumer: it mounts `/var/run/docker.sock` read-only, runs as a non-root user with a read-only filesystem, drops all capabilities and does not publish a port. The dashboard route handlers call it on the compose network and expose `GET /api/status`, `GET /api/logs` and `GET /api/actions` to the browser.
+The dashboard does not have the Docker socket. The `collector` service is the only consumer: it mounts `/var/run/docker.sock` read-only, runs as a non-root user with a read-only filesystem, drops all capabilities and does not publish a port. The dashboard route handlers call it on the compose network and expose `GET /api/status`, `GET /api/logs`, `GET /api/actions` and `POST /api/services/restart` to the browser.
 
-The collector reads only an allowlist of compose services and makes read-only Docker API calls. It never proxies arbitrary Docker paths or container ids. Log lines are capped and common token patterns are redacted.
+The collector reads only an allowlist of compose services. Its Docker API calls are read-only except for one scoped action: restarting a monitored compose service. It never proxies arbitrary Docker paths or container ids, and it cannot restart the dashboard itself or the development Home Assistant. Log lines are capped and common token patterns are redacted.
+
+The Services page shows a restart button on every card with a container in the stack. It asks for confirmation, then calls `POST /api/services/restart`. The rest of the actions on a card are read-only; log links are not implemented.
 
 The collector keeps a background snapshot refreshed every 2 seconds and serves that cached copy to status requests. If Docker is temporarily unavailable, the API keeps serving the last good snapshot with the Docker source marked unavailable instead of returning empty services.
 

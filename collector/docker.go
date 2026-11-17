@@ -96,6 +96,7 @@ type dockerClient interface {
 	InspectContainer(ctx context.Context, id string) (dockerInspect, error)
 	ContainerStats(ctx context.Context, id string) (dockerStats, error)
 	ContainerLogs(ctx context.Context, id string, since time.Time, tail int) ([]rawLogLine, error)
+	RestartContainer(ctx context.Context, id string) error
 	Events(ctx context.Context, since time.Time, handle func(dockerEvent)) error
 }
 
@@ -168,6 +169,26 @@ func (c *httpDockerClient) ContainerStats(ctx context.Context, id string) (docke
 	var stats dockerStats
 	err := c.get(ctx, "/containers/"+url.PathEscape(id)+"/stats?stream=false&one-shot=true", &stats)
 	return stats, err
+}
+
+// RestartContainer asks Docker to stop and start the container. The Docker
+// call returns after the container starts, so the caller sees the restart
+// result instead of a fire-and-forget request.
+func (c *httpDockerClient) RestartContainer(ctx context.Context, id string) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/containers/"+url.PathEscape(id)+"/restart?t=10", nil)
+	if err != nil {
+		return err
+	}
+	response, err := c.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 512))
+		return fmt.Errorf("docker restart: %s: %s", response.Status, strings.TrimSpace(string(body)))
+	}
+	return nil
 }
 
 func (c *httpDockerClient) ContainerLogs(ctx context.Context, id string, since time.Time, tail int) ([]rawLogLine, error) {

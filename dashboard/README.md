@@ -16,7 +16,7 @@ Open http://127.0.0.1:3005.
 
 ## Live data
 
-The dashboard does not mount the Docker socket. A read-only collector service
+The dashboard does not mount the Docker socket. A collector service
 (`collector/`, added to `server/compose.yaml`) is the only component with the
 socket. It exposes an internal JSON API on port 8090 with no published port.
 The dashboard proxies it through server-side route handlers, so the browser
@@ -27,6 +27,7 @@ only calls the same origin:
 | `GET /api/status` | Services, memory, CPU, activity and derived notifications |
 | `GET /api/logs` | Container logs with a cursor and `service`/`level` filters |
 | `GET /api/actions` | Action catalog generated from the exposed Home Assistant entities |
+| `POST /api/services/restart` | Restarts one monitored compose service by id |
 | `GET /api/learning` | Last learned-association snapshot plus queued edits |
 | `POST /api/learning` | Receives a learned-association snapshot from the voice client |
 | `GET /api/learning/operations` | Returns queued edits after an id for the voice client |

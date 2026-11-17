@@ -25,7 +25,7 @@
 - Domains or features without a catalog generator (for example climate setpoints or TV channels) rely on the Home Assistant conversation agent.
 - The development Home Assistant stores its login and token in plain files. Use it only for development.
 - The dashboard has no authentication and is meant for localhost use. If `BIND_ADDRESS` is changed to a wider interface, service metadata, container logs and learned phrases become reachable on that network.
-- The dashboard collector mounts the Docker socket read-only, but the Docker API itself is not read-only. The collector only makes allowlisted `GET` calls; treat the socket mount as a root-equivalent capability and keep the collector internal.
+- The dashboard collector mounts the Docker socket read-only, but the Docker API itself is not read-only. The collector makes allowlisted `GET` calls and one scoped `POST` to restart a monitored compose service; treat the socket mount as a root-equivalent capability and keep the collector internal. The dashboard cannot restart itself from the Services page.
 - Dashboard notifications are derived from observed container transitions. Read state lives in the browser, so it is per browser profile, resets with site data, and is not a durable audit log.
 - Container logs do not carry a severity field. The dashboard infers `info`, `warn`, `error` and `debug` from the message text; the badge is a filter aid, not an authoritative level.
 - Dashboard status is served from a background snapshot refreshed every 2 seconds, so it can be up to about 2 seconds old. This keeps requests fast and avoids blocking on Docker stats.

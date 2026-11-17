@@ -1,18 +1,22 @@
+import { useState } from "react";
 import {
   AudioLines,
   Box,
   Brain,
+  Check,
   House,
   LayoutDashboard,
+  Loader2,
   Mic,
   RotateCw,
-  ScrollText,
   Waves,
+  X,
 } from "lucide-react";
 import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useLiveData } from "@/components/dashboard/live-data-provider";
 import {
   formatDuration,
   formatMemory,
@@ -62,9 +66,49 @@ const statusStyles: Record<
   },
 };
 
+function restartErrorMessage(status: number): string {
+  if (status === 403) {
+    return "Este servicio no se puede reiniciar desde el panel.";
+  }
+  if (status === 404) {
+    return "No hay un contenedor para este servicio.";
+  }
+  if (status === 504) {
+    return "El reinicio tardó demasiado. Comprueba el estado del servicio.";
+  }
+  return "No se pudo reiniciar el servicio.";
+}
+
 export function ServiceCard({ service }: { service: Service }) {
+  const { refresh } = useLiveData();
   const Icon = icons[service.icon] ?? icons.unknown;
   const status = statusStyles[service.status];
+  const canRestart = service.image !== "" && service.id !== "dashboard";
+  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function restart() {
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/services/restart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: service.id }),
+      });
+      if (!response.ok) {
+        setError(restartErrorMessage(response.status));
+        return;
+      }
+      setConfirming(false);
+      refresh();
+    } catch {
+      setError("No se pudo contactar con el colector.");
+    } finally {
+      setPending(false);
+    }
+  }
 
   return (
     <Card className="gap-0 overflow-hidden py-0">
@@ -128,33 +172,64 @@ export function ServiceCard({ service }: { service: Service }) {
         </div>
       </div>
 
-      <div className="mt-auto flex items-center justify-between gap-2 px-4 py-3">
-        <span className="font-mono text-[10px] text-muted-foreground">
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 px-4 py-3">
+        <Badge
+          variant="outline"
+          title="Puerto publicado"
+          className="rounded-none border-primary/30 px-2 py-0 text-[10px] font-mono text-primary"
+        >
           {service.port === null ? unknownValue : `:${service.port}`}
-        </span>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            disabled
-            title="Disponible en una proxima version"
-          >
-            <ScrollText className="size-3.5" />
-            Logs
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            disabled
-            title="Disponible en una proxima version"
-          >
-            <RotateCw className="size-3.5" />
-            Reiniciar
-          </Button>
-        </div>
+        </Badge>
+        {canRestart &&
+          (confirming ? (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-muted-foreground">
+                ¿Reiniciar?
+              </span>
+              <Button
+                variant="destructive"
+                size="icon-xs"
+                onClick={restart}
+                disabled={pending}
+                aria-label={`Confirm restart of ${service.name}`}
+              >
+                {pending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Check className="size-3.5" />
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setConfirming(false)}
+                disabled={pending}
+                aria-label={`Cancel restart of ${service.name}`}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                setError(null);
+                setConfirming(true);
+              }}
+              aria-label={`Restart ${service.name}`}
+            >
+              <RotateCw className="size-3.5" />
+              Reiniciar
+            </Button>
+          ))}
       </div>
+      {error && (
+        <p className="px-4 pb-3 text-[10px] text-destructive" role="alert">
+          {error}
+        </p>
+      )}
     </Card>
   );
 }

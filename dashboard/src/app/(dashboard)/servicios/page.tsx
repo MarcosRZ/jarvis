@@ -27,8 +27,9 @@ function ServiceCardSkeleton() {
           </div>
         ))}
       </div>
-      <div className="px-4 py-3">
-        <Skeleton className="h-3 w-16" />
+      <div className="flex items-center justify-between gap-2 px-4 py-3">
+        <Skeleton className="h-5 w-14" />
+        <Skeleton className="h-7 w-20" />
       </div>
     </Card>
   );

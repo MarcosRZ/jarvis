@@ -120,10 +120,38 @@ func routes(app *collector) http.Handler {
 		writeJSON(w, http.StatusOK, response)
 	})
 
+	mux.HandleFunc("/v1/services/{id}/restart", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		id := r.PathValue("id")
+		restartCtx, cancel := context.WithTimeout(r.Context(), restartTimeout)
+		defer cancel()
+		if err := app.RestartService(restartCtx, id); err != nil {
+			switch {
+			case errors.Is(err, ErrServiceNotFound):
+				writeError(w, http.StatusNotFound, "service not found")
+			case errors.Is(err, ErrServiceRestartNotAllowed):
+				writeError(w, http.StatusForbidden, "service cannot be restarted from the dashboard")
+			default:
+				log.Printf("restart %s: %v", id, err)
+				writeError(w, http.StatusBadGateway, "restart failed")
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{"service": id, "status": "restarted"})
+	})
+
 	return mux
 }
 
 var processStartedAt = time.Now().UTC()
+
+// restartTimeout bounds a Docker restart request. Docker waits for the stop
+// timeout and the start before it answers.
+const restartTimeout = 45 * time.Second
 
 func healthcheck() int {
 	url := env("COLLECTOR_HEALTHCHECK_URL", "http://127.0.0.1:8090/v1/health")
