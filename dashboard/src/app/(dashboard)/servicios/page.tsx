@@ -27,11 +27,7 @@ function ServiceCardSkeleton() {
           </div>
         ))}
       </div>
-      <div className="space-y-2 p-4">
-        <Skeleton className="h-3 w-full" />
-        <Skeleton className="h-1.5 w-full" />
-      </div>
-      <div className="border-t px-4 py-3">
+      <div className="px-4 py-3">
         <Skeleton className="h-3 w-16" />
       </div>
     </Card>

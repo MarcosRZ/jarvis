@@ -13,7 +13,6 @@ import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import {
   formatDuration,
   formatMemory,
@@ -66,18 +65,6 @@ const statusStyles: Record<
 export function ServiceCard({ service }: { service: Service }) {
   const Icon = icons[service.icon] ?? icons.unknown;
   const status = statusStyles[service.status];
-  const memoryPct =
-    service.memoryMb !== null && service.memoryLimitMb !== null && service.memoryLimitMb > 0
-      ? Math.round((service.memoryMb / service.memoryLimitMb) * 100)
-      : null;
-  const memoryColor =
-    memoryPct === null
-      ? ""
-      : memoryPct >= 90
-        ? "[&>[data-slot=progress-indicator]]:bg-destructive"
-        : memoryPct >= 75
-          ? "[&>[data-slot=progress-indicator]]:bg-amber-500"
-          : "";
 
   return (
     <Card className="gap-0 py-0">
@@ -141,23 +128,7 @@ export function ServiceCard({ service }: { service: Service }) {
         </div>
       </div>
 
-      <div className="space-y-2 p-4">
-        <div className="flex items-center justify-between text-[11px]">
-          <span className="text-muted-foreground">
-            Memoria: {formatMemory(service.memoryMb)} /{" "}
-            {service.memoryLimitMb === null ? unknownValue : formatMemory(service.memoryLimitMb)}
-          </span>
-          <span className="font-medium tabular-nums text-muted-foreground">
-            {memoryPct === null ? unknownValue : `${memoryPct}%`}
-          </span>
-        </div>
-        <Progress
-          value={memoryPct ?? 0}
-          className={cn("h-1.5 rounded-none bg-muted", memoryColor)}
-        />
-      </div>
-
-      <div className="mt-auto flex items-center justify-between gap-2 border-t px-4 py-3">
+      <div className="mt-auto flex items-center justify-between gap-2 px-4 py-3">
         <span className="font-mono text-[10px] text-muted-foreground">
           {service.port === null ? unknownValue : `:${service.port}`}
         </span>
