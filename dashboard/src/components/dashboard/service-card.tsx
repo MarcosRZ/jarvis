@@ -67,7 +67,7 @@ export function ServiceCard({ service }: { service: Service }) {
   const status = statusStyles[service.status];
 
   return (
-    <Card className="gap-0 py-0">
+    <Card className="gap-0 overflow-hidden py-0">
       <div className="flex items-start gap-3 border-b p-4">
         <div className="flex size-10 shrink-0 items-center justify-center border bg-muted/40">
           <Icon className="size-5 text-primary" />

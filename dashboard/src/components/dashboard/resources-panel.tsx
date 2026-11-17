@@ -27,7 +27,7 @@ export function ResourcesPanel() {
   const usedPct = knownLimit ? Math.round((used / limit) * 100) : null;
 
   return (
-    <Card className="gap-0 py-0">
+    <Card className="gap-0 overflow-hidden py-0">
       <CardHeader className="border-b p-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -88,12 +88,14 @@ export function ResourcesPanel() {
                   const pct = used > 0 ? Math.round(((service.memoryMb ?? 0) / used) * 100) : 0;
                   return (
                     <div key={service.id} className="space-y-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-2">
-                          <span className={`size-2 ${palette[index % palette.length]}`} />
-                          {service.name}
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span
+                            className={`size-2 shrink-0 ${palette[index % palette.length]}`}
+                          />
+                          <span className="truncate">{service.name}</span>
                         </span>
-                        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+                        <span className="shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
                           {formatMemory(service.memoryMb)}
                         </span>
                       </div>
