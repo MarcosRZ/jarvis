@@ -1,14 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Ban,
   BrainCircuit,
+  Check,
   CircleCheck,
   Clock3,
+  Copy,
   EyeOff,
+  Loader2,
+  Pencil,
+  Plus,
   RefreshCw,
   Search,
+  Trash2,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +35,8 @@ import { PageHeader } from "@/components/dashboard/page-header";
 import { useLearning } from "@/components/dashboard/use-learning";
 import {
   learningStatus,
+  normalizeLearningText,
+  queueLearningOperation,
   targetID,
   type LearningEntry,
 } from "@/lib/learning";
@@ -41,10 +51,66 @@ const sourceLabel: Record<string, string> = {
 
 type Filter = "all" | "active" | "penalized";
 
-function EntryRow({ entry }: { entry: LearningEntry }) {
-  const status = learningStatus(entry);
+function SelectAllCheckbox({
+  checked,
+  indeterminate,
+  onChange,
+}: {
+  checked: boolean;
+  indeterminate: boolean;
+  onChange: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.indeterminate = indeterminate;
+    }
+  }, [indeterminate]);
   return (
-    <TableRow>
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={onChange}
+      aria-label={checked ? "Clear selection" : "Select all visible associations"}
+      className="size-4 cursor-pointer accent-primary"
+    />
+  );
+}
+
+function EntryRow({
+  entry,
+  selected,
+  confirming,
+  deleting,
+  onToggle,
+  onRequestDelete,
+  onCancelDelete,
+  onConfirmDelete,
+}: {
+  entry: LearningEntry;
+  selected: boolean;
+  confirming: boolean;
+  deleting: boolean;
+  onToggle: () => void;
+  onRequestDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+}) {
+  const status = learningStatus(entry);
+  const editHref = `/learning/edit?text=${encodeURIComponent(entry.text)}`;
+  const copyHref = `/learning/edit?copy=${encodeURIComponent(entry.text)}`;
+  return (
+    <TableRow className={selected ? "bg-muted/40" : undefined}>
+      <TableCell className="w-10 pl-4">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggle}
+          aria-label={`Select ${entry.text}`}
+          className="size-4 cursor-pointer accent-primary"
+        />
+      </TableCell>
       <TableCell className="whitespace-normal py-3">
         <p className="font-medium">{entry.text}</p>
       </TableCell>
@@ -70,8 +136,72 @@ function EntryRow({ entry }: { entry: LearningEntry }) {
           score {entry.score} · {entry.successes} ok · {entry.failures} failed
         </p>
       </TableCell>
-      <TableCell className="pr-4 text-right text-xs text-muted-foreground">
+      <TableCell className="text-right text-xs text-muted-foreground">
         {formatRelativeTime(entry.updated)}
+      </TableCell>
+      <TableCell className="pr-4">
+        <div className="flex items-center justify-end gap-0.5">
+          {confirming ? (
+            <>
+              <span className="mr-1 text-[10px] text-muted-foreground">
+                Delete?
+              </span>
+              <Button
+                variant="destructive"
+                size="icon-sm"
+                onClick={onConfirmDelete}
+                disabled={deleting}
+                aria-label={`Confirm deleting ${entry.text}`}
+              >
+                {deleting ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Check className="size-3.5" />
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onCancelDelete}
+                disabled={deleting}
+                aria-label="Cancel delete"
+              >
+                <X className="size-3.5" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                asChild
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Edit ${entry.text}`}
+              >
+                <Link href={editHref}>
+                  <Pencil className="size-3.5" />
+                </Link>
+              </Button>
+              <Button
+                asChild
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Copy ${entry.text}`}
+              >
+                <Link href={copyHref}>
+                  <Copy className="size-3.5" />
+                </Link>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onRequestDelete}
+                aria-label={`Delete ${entry.text}`}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </>
+          )}
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -82,6 +212,9 @@ function TableSkeleton() {
     <>
       {Array.from({ length: 6 }, (_, index) => (
         <TableRow key={index}>
+          <TableCell className="py-3">
+            <Skeleton className="h-4 w-4" />
+          </TableCell>
           <TableCell className="py-3">
             <Skeleton className="h-4 w-44" />
           </TableCell>
@@ -95,6 +228,9 @@ function TableSkeleton() {
           </TableCell>
           <TableCell>
             <Skeleton className="ml-auto h-3 w-16" />
+          </TableCell>
+          <TableCell>
+            <Skeleton className="ml-auto h-6 w-24" />
           </TableCell>
         </TableRow>
       ))}
@@ -135,6 +271,12 @@ export default function LearningPage() {
   const { data, loading, refreshing, error, stale, refresh } = useLearning();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [deletingText, setDeletingText] = useState<string | null>(null);
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [queueError, setQueueError] = useState<string | null>(null);
 
   const entries = useMemo(() => {
     return [...(data?.entries ?? [])].sort((a, b) => {
@@ -146,6 +288,15 @@ export default function LearningPage() {
       return left - right || a.text.localeCompare(b.text);
     });
   }, [data]);
+
+  const availableTexts = useMemo(
+    () => new Set(entries.map((entry) => entry.text)),
+    [entries],
+  );
+  const selectedTexts = useMemo(
+    () => [...selected].filter((text) => availableTexts.has(text)),
+    [selected, availableTexts],
+  );
 
   const active = entries.filter(
     (entry) => learningStatus(entry) === "active",
@@ -160,6 +311,7 @@ export default function LearningPage() {
     : stale
       ? "Stale"
       : (sourceLabel[sourceState] ?? "Unknown");
+  const pendingOperations = data?.pendingOperations ?? 0;
 
   const normalizedQuery = query.trim().toLowerCase();
   const filtered = useMemo(() => {
@@ -179,29 +331,111 @@ export default function LearningPage() {
     });
   }, [entries, filter, normalizedQuery]);
 
-  const hasSnapshot = data !== null && sourceState !== "unavailable";
+  const visibleTexts = filtered.map((entry) => entry.text);
+  const allVisibleSelected =
+    visibleTexts.length > 0 &&
+    visibleTexts.every((text) => selected.has(text));
+  const someVisibleSelected =
+    !allVisibleSelected && visibleTexts.some((text) => selected.has(text));
+
+  function toggleSelected(text: string) {
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(text)) {
+        next.delete(text);
+      } else {
+        next.add(text);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (allVisibleSelected) {
+        for (const text of visibleTexts) {
+          next.delete(text);
+        }
+      } else {
+        for (const text of visibleTexts) {
+          next.add(text);
+        }
+      }
+      return next;
+    });
+  }
+
+  async function deleteEntries(texts: string[]): Promise<boolean> {
+    setQueueError(null);
+    try {
+      await queueLearningOperation({
+        kind: "delete",
+        texts: texts.map((text) => normalizeLearningText(text) || text),
+      });
+      setSelected((previous) => {
+        const next = new Set(previous);
+        for (const text of texts) {
+          next.delete(text);
+        }
+        return next;
+      });
+      setConfirmDelete(null);
+      setBulkConfirm(false);
+      refresh();
+      return true;
+    } catch (deleteError) {
+      setQueueError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Cannot queue the deletion",
+      );
+      return false;
+    }
+  }
+
+  async function confirmSingleDelete(text: string) {
+    setDeletingText(text);
+    await deleteEntries([text]);
+    setDeletingText(null);
+  }
+
+  async function confirmBulkDelete() {
+    setBulkDeleting(true);
+    await deleteEntries(selectedTexts);
+    setBulkDeleting(false);
+  }
+
+  const hasData =
+    data !== null && (sourceState !== "unavailable" || entries.length > 0);
   const emptyTitle = !data
     ? "Learning data unavailable."
-    : sourceState === "unavailable"
+    : sourceState === "unavailable" && entries.length === 0
       ? "Waiting for the first snapshot."
       : entries.length === 0
         ? "No associations learned yet."
         : "No phrases match the current filters.";
   const emptyDetail = !data
     ? "Check the dashboard API and try again."
-    : sourceState === "unavailable"
+    : sourceState === "unavailable" && entries.length === 0
       ? "Start the voice assistant with VOICE_LEARNING_URL pointing at this dashboard."
       : entries.length === 0
-        ? "A successful command that resolves through the catalog or the model is learned after it runs."
+        ? "Create one here or run a command that the assistant resolves through the catalog or the model."
         : "Clear the search or choose another feedback filter.";
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Learning"
-        description="The sentence-to-action associations the voice assistant has learned and still uses, published as a read-only snapshot by the client."
+        description="The sentence-to-action associations the voice assistant has learned. Create, edit or delete them here; the voice client applies the queued changes to its own store."
         badge={label.toLowerCase()}
       >
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/learning/edit">
+            <Plus className="size-4" />
+            New association
+          </Link>
+        </Button>
         <Button
           variant="outline"
           size="sm"
@@ -277,6 +511,47 @@ export default function LearningPage() {
         </div>
       )}
 
+      {pendingOperations > 0 && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border border-primary/30 bg-primary/5 px-4 py-2 text-xs text-primary"
+          role="status"
+          aria-live="polite"
+        >
+          <span>
+            {pendingOperations} change
+            {pendingOperations === 1 ? "" : "s"} queued for the voice client
+            {data?.pendingSince
+              ? `, oldest ${formatRelativeTime(data.pendingSince)}`
+              : ""}
+            . Changes appear here immediately and reach the client within a few
+            seconds while it is running.
+          </span>
+          <button
+            type="button"
+            className="font-medium underline-offset-4 hover:underline"
+            onClick={refresh}
+          >
+            Check now
+          </button>
+        </div>
+      )}
+
+      {queueError && (
+        <div
+          className="flex items-center justify-between gap-2 border border-destructive/30 bg-destructive/5 px-4 py-2 text-xs text-destructive"
+          role="alert"
+        >
+          <span>Cannot queue the change: {queueError}</span>
+          <button
+            type="button"
+            className="font-medium underline-offset-4 hover:underline"
+            onClick={() => setQueueError(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {sourceState === "unavailable" && !loading && data !== null && (
         <div
           className="border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground"
@@ -289,7 +564,8 @@ export default function LearningPage() {
             after a change and every 60 seconds. Keep{" "}
             <code className="font-mono">VOICE_LEARNING_URL</code> in{" "}
             <code className="font-mono">client/.env</code> pointed at this
-            dashboard and run the assistant.
+            dashboard and run the assistant. Changes created here wait in the
+            dashboard queue until it connects.
           </p>
         </div>
       )}
@@ -297,19 +573,19 @@ export default function LearningPage() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Learned phrases"
-          value={hasSnapshot ? String(entries.length) : unknownValue}
+          value={hasData ? String(entries.length) : unknownValue}
           detail="normalized whole sentences"
           icon={BrainCircuit}
         />
         <StatCard
           label="Active"
-          value={hasSnapshot ? String(active) : unknownValue}
+          value={hasData ? String(active) : unknownValue}
           detail="will be reused"
           icon={CircleCheck}
         />
         <StatCard
           label="Penalized"
-          value={hasSnapshot ? String(penalized) : unknownValue}
+          value={hasData ? String(penalized) : unknownValue}
           detail="blocked by feedback"
           icon={Ban}
         />
@@ -368,21 +644,102 @@ export default function LearningPage() {
         </div>
       </div>
 
+      {selectedTexts.length > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-2 border bg-muted/40 px-4 py-2"
+          role="region"
+          aria-label="Selected associations"
+        >
+          <span className="text-sm font-medium tabular-nums">
+            {selectedTexts.length} selected
+          </span>
+          {bulkConfirm ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">
+                Delete {selectedTexts.length}{" "}
+                {selectedTexts.length === 1 ? "association" : "associations"}?
+              </span>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={confirmBulkDelete}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Trash2 className="size-4" />
+                )}
+                {bulkDeleting ? "Deleting..." : "Confirm"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setBulkConfirm(false)}
+                disabled={bulkDeleting}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBulkConfirm(true)}
+              >
+                <Trash2 className="size-4" />
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelected(new Set())}
+              >
+                Clear selection
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       <Card className="gap-0 overflow-hidden py-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="pl-4">Phrase</TableHead>
+              <TableHead className="w-10 pl-4">
+                <SelectAllCheckbox
+                  checked={allVisibleSelected}
+                  indeterminate={someVisibleSelected}
+                  onChange={toggleAllVisible}
+                />
+              </TableHead>
+              <TableHead>Phrase</TableHead>
               <TableHead className="hidden md:table-cell">Target</TableHead>
               <TableHead>Feedback</TableHead>
-              <TableHead className="pr-4 text-right">Updated</TableHead>
+              <TableHead className="text-right">Updated</TableHead>
+              <TableHead className="pr-4 text-right">
+                <span className="sr-only">Actions</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableSkeleton />
             ) : (
-              filtered.map((entry) => <EntryRow key={entry.text} entry={entry} />)
+              filtered.map((entry) => (
+                <EntryRow
+                  key={entry.text}
+                  entry={entry}
+                  selected={selected.has(entry.text)}
+                  confirming={confirmDelete === entry.text}
+                  deleting={deletingText === entry.text}
+                  onToggle={() => toggleSelected(entry.text)}
+                  onRequestDelete={() => setConfirmDelete(entry.text)}
+                  onCancelDelete={() => setConfirmDelete(null)}
+                  onConfirmDelete={() => confirmSingleDelete(entry.text)}
+                />
+              ))
             )}
           </TableBody>
         </Table>
@@ -404,17 +761,20 @@ export default function LearningPage() {
         <div className="p-4">
           <div className="flex items-center gap-2">
             <Badge variant="outline" className="rounded-none text-[10px]">
-              Mirror
+              Queue
             </Badge>
-            <p className="text-sm font-medium">A read-only view of client memory</p>
+            <p className="text-sm font-medium">
+              The client owns the learning store
+            </p>
           </div>
           <p className="mt-2 max-w-3xl text-xs leading-relaxed text-muted-foreground">
-            The dashboard stores the last snapshot in the{" "}
+            The dashboard stores the last snapshot and a queue of changes in the{" "}
             <code className="font-mono">dashboard-data</code> volume with mode{" "}
-            <code className="font-mono">0600</code>. It does not run or change
-            learning, and it cannot check whether a target still exists in Home
-            Assistant. A stopped client, or publishing turned off, leaves the
-            last snapshot visible until the heartbeat expires.
+            <code className="font-mono">0600</code>. The voice client polls the
+            queue, applies each change to its local store and publishes a new
+            snapshot. Changes stay queued while the client is stopped, and the
+            dashboard cannot check whether a target still exists in Home
+            Assistant.
           </p>
         </div>
       </Card>

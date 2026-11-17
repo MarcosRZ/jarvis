@@ -27,10 +27,12 @@ const (
 	deviceRefresh = 30 * time.Second
 	promptTimeout = 2 * time.Second
 
-	// The learning publisher checks for changes often, sends a heartbeat so the
-	// dashboard can tell a quiet client from a stopped one, and gives the
-	// dashboard a short timeout so a failure never touches the voice pipeline.
+	// The learning publisher checks for changes often, polls the dashboard for
+	// queued edits, sends a heartbeat so the dashboard can tell a quiet client
+	// from a stopped one, and gives the dashboard a short timeout so a failure
+	// never touches the voice pipeline.
 	learningPublishCheck   = 5 * time.Second
+	learningOperationCheck = 2 * time.Second
 	learningHeartbeat      = 60 * time.Second
 	learningPublishTimeout = 3 * time.Second
 )
@@ -178,22 +180,31 @@ func newCommandHandler(ctx context.Context, cfg config.Config, logger *slog.Logg
 }
 
 // publishLearning mirrors the learned associations to the dashboard without
-// blocking the voice pipeline. It sends at startup, after every change and on a
-// heartbeat, so the dashboard can tell a quiet client from a stopped one. A
-// repeated failure is logged once until a publish succeeds again.
+// blocking the voice pipeline, and applies the edits queued from the Learning
+// page. It sends at startup, after every change, after applying an operation
+// and on a heartbeat, so the dashboard can tell a quiet client from a stopped
+// one. A repeated failure is logged once until the call succeeds again.
 func publishLearning(ctx context.Context, store *learning.Store, url string, logger *slog.Logger) {
 	client := &http.Client{Timeout: learningPublishTimeout}
 	check := time.NewTicker(learningPublishCheck)
 	defer check.Stop()
+	operations := time.NewTicker(learningOperationCheck)
+	defer operations.Stop()
+	operationsURL := learning.OperationsURL(url)
 
 	var lastRevision uint64
 	var publishedAt time.Time
+	var appliedThrough int64
+	var publishedThrough int64
 	var lastError string
+	var lastOperationError string
+
 	publish := func() {
 		// Read the revision before the snapshot: a change in between causes one
 		// extra publish instead of losing the change until the next heartbeat.
 		revision := store.Revision()
 		snapshot := store.Snapshot(time.Now())
+		snapshot.AppliedThrough = appliedThrough
 		if err := learning.Publish(ctx, client, url, snapshot); err != nil {
 			if message := err.Error(); message != lastError {
 				logger.Warn("learning snapshot", "url", url, "error", err)
@@ -203,8 +214,44 @@ func publishLearning(ctx context.Context, store *learning.Store, url string, log
 		}
 		lastRevision = revision
 		publishedAt = time.Now()
+		publishedThrough = appliedThrough
 		lastError = ""
 		logger.Debug("learning snapshot", "url", url, "entries", len(snapshot.Entries))
+	}
+
+	apply := func() bool {
+		queued, err := learning.FetchOperations(ctx, client, operationsURL, appliedThrough)
+		if err != nil {
+			if message := err.Error(); message != lastOperationError {
+				logger.Warn("learning operations", "url", operationsURL, "error", err)
+				lastOperationError = message
+			}
+			return false
+		}
+		lastOperationError = ""
+		changed := false
+		for _, op := range queued {
+			if op.ID <= appliedThrough {
+				continue
+			}
+			applied, err := store.ApplyOperation(op, time.Now())
+			if err != nil {
+				if errors.Is(err, learning.ErrInvalidOperation) {
+					logger.Warn("learning operation rejected", "id", op.ID, "kind", op.Kind, "error", err)
+					appliedThrough = op.ID
+					changed = true
+					continue
+				}
+				logger.Warn("learning operation not applied; will retry", "id", op.ID, "kind", op.Kind, "error", err)
+				break
+			}
+			appliedThrough = op.ID
+			changed = true
+			if applied {
+				logger.Debug("learning operation applied", "id", op.ID, "kind", op.Kind, "entries", store.Len())
+			}
+		}
+		return changed
 	}
 
 	publish()
@@ -212,8 +259,12 @@ func publishLearning(ctx context.Context, store *learning.Store, url string, log
 		select {
 		case <-ctx.Done():
 			return
+		case <-operations.C:
+			if apply() || appliedThrough != publishedThrough {
+				publish()
+			}
 		case <-check.C:
-			if store.Revision() != lastRevision || time.Since(publishedAt) >= learningHeartbeat {
+			if store.Revision() != lastRevision || appliedThrough != publishedThrough || time.Since(publishedAt) >= learningHeartbeat {
 				publish()
 			}
 		}

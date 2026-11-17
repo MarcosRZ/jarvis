@@ -57,7 +57,7 @@ Every setting is listed with a comment in `client/.env.example` and `server/.env
 | `VOICE_PROMPT_URL` | Dashboard prompt endpoint; empty uses the built-in prompt |
 | `VOICE_ROOM` | Room used to resolve "here"; match it to a device name |
 | `VOICE_LEARNING_FILE` | Learned associations; `off` disables learning |
-| `VOICE_LEARNING_URL` | Dashboard snapshot endpoint; `off` disables publishing |
+| `VOICE_LEARNING_URL` | Dashboard snapshot and operation queue endpoint; `off` disables publishing and remote edits |
 | `VOICE_ACTIONS_FILE` | Snapshot written by `voice-client actions` |
 
 ### Logging and text
@@ -123,14 +123,38 @@ should go. Without it, the context is appended. The JSON reply format is always
 appended. The editor shows the built-in prompt when no custom prompt is saved;
 `Reset to built-in` removes the custom prompt.
 
-## Learning snapshot
+## Learning store and dashboard
 
 The dashboard `Learning` page is fed by the client, not by the collector. The
-client posts a read-only JSON snapshot to `VOICE_LEARNING_URL` (default
-`http://127.0.0.1:3005/api/learning`) at startup, after a change and every 60
-seconds. Set it to `off`, or pass an empty `--learning-url`, to disable
-publishing. The dashboard stores the snapshot in the `dashboard-data` volume
-with mode `0600`.
+client owns the learning store; the dashboard is the editing surface and keeps a
+copy of the last published state.
+
+The client posts a JSON snapshot to `VOICE_LEARNING_URL` (default
+`http://127.0.0.1:3005/api/learning`) at startup, after a change, after applying
+a queued edit and every 60 seconds as a heartbeat. The dashboard stores the
+snapshot in `/data/learning.json` in the `dashboard-data` volume with mode
+`0600`.
+
+Create, edit and delete operations from `/learning` and `/learning/edit` go to
+`POST /api/learning/operations`. The dashboard appends them to
+`/data/learning-operations.json` (also mode `0600`) and shows their result
+immediately. The client polls `GET /api/learning/operations?after=<id>` every 2
+seconds, applies each operation to its local store and publishes a snapshot with
+`appliedThrough` set to the last handled id. The dashboard drops acknowledged
+operations from the queue.
+
+Manual entries follow the same key rules as automatic learning: lowercase, no
+accents or punctuation, no filler words such as "por favor". The store is keyed
+by that normalized sentence, so editing the sentence replaces the old key. The
+dashboard rejects a second association with the same normalized sentence unless
+it is editing the existing one. The client does not check whether a device or
+action still exists in Home Assistant; the command handler applies the same
+existence checks as for learned entries.
+
+Set `VOICE_LEARNING_URL` to `off`, or pass an empty `--learning-url`, to disable
+publishing and remote edits. Changes queued while the client is stopped stay in
+the dashboard until it runs again, so the page can show a state that the local
+store does not have yet.
 
 The phrases are recognized speech and can be private. The dashboard has no
 authentication; keep it on localhost or a trusted network. If the client runs on

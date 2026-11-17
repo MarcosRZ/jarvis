@@ -227,8 +227,9 @@ func TestPublishPostsTheSnapshot(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	want := Snapshot{
-		Version:     SnapshotVersion,
-		GeneratedAt: time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC),
+		Version:        SnapshotVersion,
+		GeneratedAt:    time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC),
+		AppliedThrough: 42,
 		Entries: []Entry{{
 			Text:      "apaga la luz",
 			Device:    "switch.luz",
@@ -248,7 +249,7 @@ func TestPublishPostsTheSnapshot(t *testing.T) {
 	if contentType != "application/json" {
 		t.Errorf("content type %q, want application/json", contentType)
 	}
-	if got.Version != want.Version || !got.GeneratedAt.Equal(want.GeneratedAt) || len(got.Entries) != 1 {
+	if got.Version != want.Version || !got.GeneratedAt.Equal(want.GeneratedAt) || got.AppliedThrough != want.AppliedThrough || len(got.Entries) != 1 {
 		t.Fatalf("published %+v, want %+v", got, want)
 	}
 	if got.Entries[0].Text != want.Entries[0].Text || got.Entries[0].Device != want.Entries[0].Device || got.Entries[0].Score != want.Entries[0].Score {

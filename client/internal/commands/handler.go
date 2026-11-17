@@ -87,8 +87,6 @@ var phrases = map[string]Kind{
 
 var articles = map[string]bool{"el": true, "la": true, "los": true, "las": true}
 
-var plainLetters = strings.NewReplacer("á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u", "ñ", "n")
-
 // Device is an allowlisted device. Name is the spoken name with its article,
 // for example "la luz de la cocina"; ID is the identifier for the controller.
 type Device struct {
@@ -1522,7 +1520,7 @@ func learnable(source string) bool {
 
 // learningKey is the normalized sentence without fillers, the store key.
 func learningKey(text string) string {
-	return withoutFillers(normalize(text))
+	return learning.Key(text)
 }
 
 func (h *Handler) help() string {
@@ -1546,11 +1544,7 @@ func (h *Handler) help() string {
 // normalize lowercases text, removes accents and punctuation, and joins the
 // words with single spaces.
 func normalize(text string) string {
-	text = plainLetters.Replace(strings.ToLower(text))
-	words := strings.FieldsFunc(text, func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
-	return strings.Join(words, " ")
+	return learning.Normalize(text)
 }
 
 func withoutArticle(phrase string) string {
@@ -1561,20 +1555,10 @@ func withoutArticle(phrase string) string {
 	return phrase
 }
 
-// fillers are words that do not change the command. They are common at the end
-// of a spoken sentence ("apaga el ventilador, por favor") and would otherwise
-// make the device phrase unknown.
-var fillers = map[string]bool{"por": true, "favor": true, "porfa": true, "please": true, "gracias": true}
-
+// withoutFillers removes words that do not change the command from a
+// normalized sentence.
 func withoutFillers(norm string) string {
-	words := strings.Fields(norm)
-	kept := words[:0]
-	for _, word := range words {
-		if !fillers[word] {
-			kept = append(kept, word)
-		}
-	}
-	return strings.Join(kept, " ")
+	return learning.WithoutFillers(norm)
 }
 
 // spokenTime gives the time in the 12-hour form of spoken Spanish. Piper reads

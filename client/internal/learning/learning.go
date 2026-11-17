@@ -39,10 +39,13 @@ type Entry struct {
 
 // Snapshot is the read-only form of the store that the client publishes to the
 // dashboard. Text is recognized speech, so a snapshot is private data.
+// AppliedThrough acknowledges the dashboard operations that the client has
+// already applied, so the dashboard can drop them from its queue.
 type Snapshot struct {
-	Version     int       `json:"version"`
-	GeneratedAt time.Time `json:"generatedAt"`
-	Entries     []Entry   `json:"entries"`
+	Version        int       `json:"version"`
+	GeneratedAt    time.Time `json:"generatedAt"`
+	AppliedThrough int64     `json:"appliedThrough,omitempty"`
+	Entries        []Entry   `json:"entries"`
 }
 
 // Store keeps the entries in memory and writes them to a JSON file after each
@@ -162,6 +165,75 @@ func (s *Store) penalize(text string, want Entry, now time.Time) (Entry, bool, e
 	s.entries[text] = e
 	s.revision++
 	return e, true, s.saveLocked()
+}
+
+// ErrInvalidEntry marks an entry that cannot be stored. Callers can reject it
+// without retrying, unlike a write error.
+var ErrInvalidEntry = errors.New("invalid learning entry")
+
+// Upsert stores a manually created or edited entry under its normalized text.
+// originalText is the key the entry had before the edit; an empty originalText
+// creates a new association. When the text changes, the old key is removed.
+func (s *Store) Upsert(originalText string, e Entry, now time.Time) (Entry, error) {
+	e.Text = Key(e.Text)
+	e.Device = strings.TrimSpace(e.Device)
+	e.Action = strings.TrimSpace(e.Action)
+	e.Kind = strings.TrimSpace(e.Kind)
+	e.Name = strings.TrimSpace(e.Name)
+	if e.Text == "" {
+		return Entry{}, fmt.Errorf("%w: text is empty after normalization", ErrInvalidEntry)
+	}
+	if (e.Device == "") == (e.Action == "") {
+		return Entry{}, fmt.Errorf("%w: entry must name exactly one of device or action", ErrInvalidEntry)
+	}
+	if e.Device != "" {
+		if e.Kind != "turn-on" && e.Kind != "turn-off" {
+			return Entry{}, fmt.Errorf("%w: device kind must be turn-on or turn-off", ErrInvalidEntry)
+		}
+	} else if e.Kind != "" {
+		return Entry{}, fmt.Errorf("%w: kind is only valid for a device", ErrInvalidEntry)
+	}
+	if e.Successes < 0 || e.Failures < 0 {
+		return Entry{}, fmt.Errorf("%w: successes and failures must be zero or greater", ErrInvalidEntry)
+	}
+	e.Updated = now
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if old := Key(originalText); old != "" && old != e.Text {
+		delete(s.entries, old)
+	}
+	s.entries[e.Text] = e
+	s.revision++
+	return e, s.saveLocked()
+}
+
+// Delete removes the entries for texts and returns how many existed.
+func (s *Store) Delete(texts []string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := 0
+	attempted := false
+	for _, text := range texts {
+		key := Key(text)
+		if key == "" {
+			continue
+		}
+		attempted = true
+		if _, ok := s.entries[key]; ok {
+			delete(s.entries, key)
+			removed++
+		}
+	}
+	if !attempted {
+		return 0, nil
+	}
+	if removed > 0 {
+		s.revision++
+	}
+	// Save even when no entry matched: a previous attempt may have changed the
+	// in-memory store and failed to write the file, and this retry must repair it.
+	return removed, s.saveLocked()
 }
 
 // Snapshot returns a copy of every entry at now. The entries are sorted by

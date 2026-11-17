@@ -13,6 +13,7 @@ type LearningState = {
 };
 
 const pollIntervalMs = 30000;
+const pendingPollIntervalMs = 5000;
 const backoffMs = [1000, 2000, 4000, 8000, 16000, 30000];
 
 export function useLearning(): LearningState {
@@ -23,6 +24,7 @@ export function useLearning(): LearningState {
   const inFlight = useRef<AbortController | null>(null);
   const failures = useRef(0);
   const manual = useRef(false);
+  const pending = useRef(0);
 
   const refresh = useCallback(() => {
     failures.current = 0;
@@ -54,6 +56,7 @@ export function useLearning(): LearningState {
         if (stopped) {
           return;
         }
+        pending.current = next.pendingOperations ?? 0;
         setData(next);
         setError(null);
         failures.current = 0;
@@ -93,7 +96,9 @@ export function useLearning(): LearningState {
       const delay =
         failures.current > 0
           ? backoffMs[Math.min(failures.current - 1, backoffMs.length - 1)]
-          : pollIntervalMs;
+          : pending.current > 0
+            ? pendingPollIntervalMs
+            : pollIntervalMs;
       timer = setTimeout(tick, delay);
     }
 

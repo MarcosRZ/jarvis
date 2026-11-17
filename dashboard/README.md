@@ -27,14 +27,16 @@ only calls the same origin:
 | `GET /api/status` | Services, memory, CPU, activity and derived notifications |
 | `GET /api/logs` | Container logs with a cursor and `service`/`level` filters |
 | `GET /api/actions` | Action catalog generated from the exposed Home Assistant entities |
-| `GET /api/learning` | Last learned-association snapshot published by the voice client |
+| `GET /api/learning` | Last learned-association snapshot plus queued edits |
 | `POST /api/learning` | Receives a learned-association snapshot from the voice client |
+| `GET /api/learning/operations` | Returns queued edits after an id for the voice client |
+| `POST /api/learning/operations` | Queues a create, edit or delete from the Learning page |
 
 The pages poll `api/status` every 5 seconds, `api/logs` every 2 seconds,
-`api/actions` every 15 seconds and `api/learning` every 30 seconds. Polling
-pauses while the page is hidden and backs off after failures. When the collector
-is unreachable the UI shows an honest error or stale state; it never falls back
-to sample data.
+`api/actions` every 15 seconds and `api/learning` every 30 seconds, or every 5
+seconds while edits are waiting for the client. Polling pauses while the page is
+hidden and backs off after failures. When the collector is unreachable the UI
+shows an honest error or stale state; it never falls back to sample data.
 
 The collector refreshes its snapshot in the background every 2 seconds and
 serves that cached copy, so status responses stay fast and do not wait on the
@@ -51,17 +53,31 @@ built-in intents or learned associations.
 ## Learning
 
 The Learning page is not served by the collector. The voice client publishes a
-read-only snapshot to `POST /api/learning` through `VOICE_LEARNING_URL` (default
-`http://127.0.0.1:3005/api/learning`) at startup, after a change and every 60
-seconds. The dashboard stores the payload in `/data/learning.json` inside the
-`dashboard-data` volume with mode `0600` and serves it at `GET /api/learning`.
+snapshot to `POST /api/learning` through `VOICE_LEARNING_URL` (default
+`http://127.0.0.1:3005/api/learning`) at startup, after a change, after applying
+a queued edit and every 60 seconds. The dashboard stores the payload in
+`/data/learning.json` inside the `dashboard-data` volume with mode `0600` and
+serves it at `GET /api/learning`.
 
 `GET /api/learning` adds a `source`: `ok` when the last publish is recent,
 `degraded` after 5 minutes without a heartbeat, and `unavailable` when no
 snapshot exists. It validates the schema and rejects oversized or malformed
-payloads. The page is a display-only mirror: it cannot verify that a target
-still exists and it does not run or change learning. The phrases are recognized
-speech, so keep the dashboard on localhost or a trusted network.
+payloads. It also merges the pending edit queue over the snapshot, so the page
+shows queued changes immediately, and reports `pendingOperations` and
+`pendingSince`.
+
+The Learning page can create, edit, copy and delete associations, including
+bulk deletion from the selection toolbar. Changes go to
+`POST /api/learning/operations` and are stored in
+`/data/learning-operations.json` with mode `0600`. The voice client polls
+`GET /api/learning/operations?after=<id>` every 2 seconds, applies each change
+to its local store and publishes a snapshot with `appliedThrough`. The dashboard
+then removes the acknowledged operations. The client owns the store, so queued
+changes remain pending while it is stopped, and the dashboard cannot verify that
+a target still exists in Home Assistant.
+
+The phrases are recognized speech, so keep the dashboard on localhost or a
+trusted network. The Learning API and page have no authentication.
 
 Set `COLLECTOR_URL` to change the collector address (default
 `http://collector:8090`). The collector reads `VOICE_HA_URL` and
@@ -124,4 +140,4 @@ the custom prompt and falls back to the built-in prompt.
 - `COLLECTOR_URL`: collector address used by the server-side route handlers.
 - `DOCKER_SOCKET_GID`: host Docker socket group id for the collector.
 - `VOICE_HA_URL`, `VOICE_HA_TOKEN`: Home Assistant source for status, host uptime and the action catalog.
-- `VOICE_LEARNING_URL`: client setting that publishes the Learning snapshot; `off` disables publishing.
+- `VOICE_LEARNING_URL`: client setting that publishes the Learning snapshot and polls the edit queue at `<url>/operations`; `off` disables both.
