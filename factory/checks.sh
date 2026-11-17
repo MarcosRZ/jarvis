@@ -34,11 +34,25 @@ if [ -n "$unformatted" ]; then
   exit 1
 fi
 
+echo "==> shared gofmt"
+unformatted="$(cd "$target/shared/actions" && gofmt -l .)"
+if [ -n "$unformatted" ]; then
+  echo "checks: shared gofmt needed:" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
+
 echo "==> go vet"
 (cd "$target/client" && go vet ./...)
 
+echo "==> shared go vet"
+(cd "$target/shared/actions" && go vet ./...)
+
 echo "==> go test"
 (cd "$target/client" && go test ./...)
+
+echo "==> shared go test"
+(cd "$target/shared/actions" && go test ./...)
 
 echo "==> collector gofmt"
 unformatted="$(cd "$target/collector" && gofmt -l .)"

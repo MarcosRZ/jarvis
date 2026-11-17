@@ -175,7 +175,10 @@ services:
 
   collector:
     build:
-      context: ../collector
+      # The collector shares the action catalog with the client, so the build
+      # context includes both collector/ and shared/actions/.
+      context: ..
+      dockerfile: collector/Dockerfile
     container_name: m4nhattan-collector
     environment:
       COLLECTOR_LISTEN_ADDR: ":8090"

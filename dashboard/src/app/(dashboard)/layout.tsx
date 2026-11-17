@@ -16,7 +16,7 @@ export default function DashboardLayout({
           <main className="flex-1 p-4 sm:p-6">{children}</main>
           <footer className="flex flex-col gap-1 border-t px-4 py-4 text-[11px] text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <span>M4nhattan dashboard v0.1.0</span>
-            <span>Service, log and notification data is live. Prompt settings are stored on this host.</span>
+            <span>Service, log, action and notification data is live. Prompt settings are stored on this host.</span>
           </footer>
         </div>
       </div>

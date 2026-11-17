@@ -37,6 +37,7 @@ const typeColor: Record<string, string> = {
 const pageLabels: Record<string, string> = {
   "/": "General",
   "/servicios": "Servicios",
+  "/actions": "Actions",
   "/registros": "Registros",
   "/notificaciones": "Notificaciones",
   "/settings": "Settings",

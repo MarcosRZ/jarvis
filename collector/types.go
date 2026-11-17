@@ -1,5 +1,7 @@
 package main
 
+import actioncatalog "jarvis/actions"
+
 type ServiceStatus string
 
 const (
@@ -95,6 +97,17 @@ type Snapshot struct {
 type SnapshotSources struct {
 	Docker        SourceStatus `json:"docker"`
 	HomeAssistant SourceStatus `json:"homeAssistant"`
+}
+
+// ActionsSnapshot is the deterministic action catalog generated from the
+// Home Assistant entities exposed to the voice assistant. It is generated and
+// cached separately from the container snapshot because it changes slowly.
+type ActionsSnapshot struct {
+	Version     int                    `json:"version"`
+	GeneratedAt string                 `json:"generatedAt"`
+	Source      SourceStatus           `json:"source"`
+	EntityCount int                    `json:"entityCount"`
+	Actions     []actioncatalog.Action `json:"actions"`
 }
 
 type LogEntry struct {

@@ -25,6 +25,10 @@ type collector struct {
 	cached   *Snapshot
 	lastGood *Snapshot
 
+	actionsMu       sync.Mutex
+	actions         *ActionsSnapshot
+	actionsLastGood *ActionsSnapshot
+
 	statsMu    sync.Mutex
 	statsCache map[string]statsCacheEntry
 

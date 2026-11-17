@@ -6,7 +6,7 @@ import (
 	"io"
 	"time"
 
-	"jarvis/client/internal/actions"
+	"jarvis/actions"
 	"jarvis/client/internal/config"
 	"jarvis/client/internal/homeassistant"
 )

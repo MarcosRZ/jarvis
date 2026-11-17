@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"jarvis/client/internal/actions"
+	"jarvis/actions"
 	"jarvis/client/internal/learning"
 )
 

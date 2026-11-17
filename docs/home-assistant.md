@@ -15,6 +15,8 @@ Jarvis uses Home Assistant for the device list, the action catalog and the conve
 
 The exposed entities are both the action catalog and the context the local model may see. Unexpose anything the assistant must not control.
 
+The dashboard `Actions` page reads the same exposure settings through the collector. Set `VOICE_HA_URL` and `VOICE_HA_TOKEN` in `server/.env` as well, and keep them aligned with `client/.env`. The collector refreshes the catalog every 30 seconds.
+
 ## What runs where
 
 | Sentence | Handled by |

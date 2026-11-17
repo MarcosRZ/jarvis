@@ -31,6 +31,7 @@ func main() {
 	app.storeSnapshot(app.buildSnapshot(warmCtx))
 	cancelWarm()
 	go app.runSampler(ctx)
+	go app.runActionsSampler(ctx)
 
 	server := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -85,6 +86,13 @@ func routes(app *collector) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, app.Snapshot(r.Context()))
+	})
+
+	mux.HandleFunc("/v1/actions", func(w http.ResponseWriter, r *http.Request) {
+		if !allowGet(w, r) {
+			return
+		}
+		writeJSON(w, http.StatusOK, app.Actions(r.Context()))
 	})
 
 	mux.HandleFunc("/v1/logs", func(w http.ResponseWriter, r *http.Request) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"jarvis/client/internal/actions"
+	"jarvis/actions"
 	"jarvis/client/internal/commands"
 )
 

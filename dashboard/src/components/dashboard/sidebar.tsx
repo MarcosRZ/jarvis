@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   Bell,
   LayoutDashboard,
+  ListChecks,
   ScrollText,
   Server,
   Settings,
@@ -23,6 +24,7 @@ const primaryNav: {
 }[] = [
   { label: "General", href: "/", icon: LayoutDashboard },
   { label: "Servicios", href: "/servicios", icon: Server },
+  { label: "Actions", href: "/actions", icon: ListChecks },
   { label: "Registros", href: "/registros", icon: ScrollText },
   {
     label: "Notificaciones",

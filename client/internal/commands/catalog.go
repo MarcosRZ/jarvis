@@ -4,7 +4,7 @@ import (
 	"slices"
 	"strings"
 
-	"jarvis/client/internal/actions"
+	"jarvis/actions"
 )
 
 // matchCatalogAction returns the only catalog action that both names the

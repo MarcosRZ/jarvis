@@ -3,8 +3,15 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
+	actioncatalog "jarvis/actions"
 )
 
 type fakeDocker struct {
@@ -422,4 +429,146 @@ func TestErrorEnvelopeJSON(t *testing.T) {
 	if string(body) != `{"error":"invalid cursor"}` {
 		t.Fatalf("unexpected body: %s", body)
 	}
+}
+
+func TestActionsDisabledWithoutHomeAssistant(t *testing.T) {
+	app := newCollector(config{RequestTimeout: time.Second}, &fakeDocker{}, nil)
+	snapshot := app.buildActions(context.Background())
+	if snapshot.Source.State != SourceDisabled {
+		t.Fatalf("source = %q, want disabled", snapshot.Source.State)
+	}
+	if len(snapshot.Actions) != 0 {
+		t.Fatalf("got %d actions, want none", len(snapshot.Actions))
+	}
+	if snapshot.Source.Message == nil || !strings.Contains(*snapshot.Source.Message, "VOICE_HA_URL") {
+		t.Fatalf("message = %v, want a configuration hint", snapshot.Source.Message)
+	}
+}
+
+func TestActionsKeepsLastGoodCatalog(t *testing.T) {
+	lastSuccess := "2026-11-17T10:00:00Z"
+	app := newCollector(config{RequestTimeout: time.Second}, &fakeDocker{}, nil)
+	app.actionsLastGood = &ActionsSnapshot{
+		Version:     1,
+		GeneratedAt: lastSuccess,
+		Source:      SourceStatus{State: SourceOK, LastSuccessAt: &lastSuccess},
+		EntityCount: 2,
+		Actions: []actioncatalog.Action{
+			{ID: "light.salon.turn_on", Name: "Encender Luz salon", EntityID: "light.salon", Domain: "light", Service: "light.turn_on"},
+		},
+	}
+
+	snapshot := app.staleActions(time.Now().UTC(), errors.New("home assistant is not reachable"))
+	if snapshot.Source.State != SourceDegraded {
+		t.Fatalf("source = %q, want degraded", snapshot.Source.State)
+	}
+	if snapshot.Source.LastSuccessAt == nil || *snapshot.Source.LastSuccessAt != lastSuccess {
+		t.Fatalf("lastSuccessAt = %v, want %q", snapshot.Source.LastSuccessAt, lastSuccess)
+	}
+	if snapshot.GeneratedAt != lastSuccess {
+		t.Fatalf("generatedAt = %q, want the last good value %q", snapshot.GeneratedAt, lastSuccess)
+	}
+	if len(snapshot.Actions) != 1 || snapshot.Actions[0].ID != "light.salon.turn_on" {
+		t.Fatalf("actions = %+v, want the last good catalog", snapshot.Actions)
+	}
+	if snapshot.Source.Message == nil || *snapshot.Source.Message == "" {
+		t.Fatal("message is empty, want the Home Assistant error")
+	}
+}
+
+func TestActionsUnavailableWithoutLastGood(t *testing.T) {
+	app := newCollector(config{RequestTimeout: time.Second}, &fakeDocker{}, nil)
+	snapshot := app.staleActions(time.Now().UTC(), errors.New("boom"))
+	if snapshot.Source.State != SourceUnavailable {
+		t.Fatalf("source = %q, want unavailable", snapshot.Source.State)
+	}
+	if len(snapshot.Actions) != 0 {
+		t.Fatalf("got %d actions, want none", len(snapshot.Actions))
+	}
+}
+
+func TestBuildActionsFromExposedEntities(t *testing.T) {
+	server := newFakeHAServer(t, map[string]map[string]bool{
+		"light.salon":   {"conversation": true},
+		"switch.hidden": {"conversation": false},
+		"sensor.temp":   {"conversation": true},
+	}, []haState{
+		{EntityID: "light.salon", State: "on", Attributes: map[string]json.RawMessage{"friendly_name": json.RawMessage(`"Luz salon"`)}},
+		{EntityID: "switch.hidden", State: "on", Attributes: map[string]json.RawMessage{"friendly_name": json.RawMessage(`"Hidden"`)}},
+		{EntityID: "sensor.temp", State: "21", Attributes: map[string]json.RawMessage{"friendly_name": json.RawMessage(`"Temperatura"`)}},
+	})
+	defer server.Close()
+
+	home := newHomeAssistantClient(homeAssistantConfig{URL: server.URL, Token: "token"}, time.Second)
+	app := newCollector(config{RequestTimeout: time.Second}, &fakeDocker{}, home)
+	snapshot := app.buildActions(context.Background())
+
+	if snapshot.Source.State != SourceOK {
+		t.Fatalf("source = %q (%v), want ok", snapshot.Source.State, snapshot.Source.Message)
+	}
+	if snapshot.EntityCount != 2 {
+		t.Fatalf("entityCount = %d, want 2 exposed entities", snapshot.EntityCount)
+	}
+	if len(snapshot.Actions) != 3 {
+		t.Fatalf("got %d actions, want the three light actions: %+v", len(snapshot.Actions), snapshot.Actions)
+	}
+	for _, action := range snapshot.Actions {
+		if action.EntityID != "light.salon" {
+			t.Fatalf("action %q belongs to %q, want light.salon", action.ID, action.EntityID)
+		}
+	}
+	if snapshot.Source.LastSuccessAt == nil {
+		t.Fatal("lastSuccessAt is nil")
+	}
+
+	server.Close()
+	stale := app.buildActions(context.Background())
+	if stale.Source.State != SourceDegraded {
+		t.Fatalf("source after failure = %q, want degraded", stale.Source.State)
+	}
+	if len(stale.Actions) != 3 {
+		t.Fatalf("got %d stale actions, want 3", len(stale.Actions))
+	}
+}
+
+func newFakeHAServer(t *testing.T, exposed map[string]map[string]bool, states []haState) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/states", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(states)
+	})
+	mux.HandleFunc("/api/websocket", func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		ctx := context.Background()
+		if err := writeWSMessage(ctx, conn, map[string]any{"type": "auth_required"}); err != nil {
+			return
+		}
+		var auth wsMessage
+		if err := readWSMessage(ctx, conn, &auth); err != nil {
+			return
+		}
+		if err := writeWSMessage(ctx, conn, map[string]any{"type": "auth_ok"}); err != nil {
+			return
+		}
+		var call wsMessage
+		if err := readWSMessage(ctx, conn, &call); err != nil {
+			return
+		}
+		_ = writeWSMessage(ctx, conn, map[string]any{
+			"id":      call.ID,
+			"type":    "result",
+			"success": true,
+			"result":  map[string]any{"exposed_entities": exposed},
+		})
+	})
+	return httptest.NewServer(mux)
 }

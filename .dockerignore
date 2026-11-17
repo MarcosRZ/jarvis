@@ -1,0 +1,16 @@
+# The collector is built from the repository root so it can share the action
+# catalog module with the client. Keep the context small.
+.git
+.factory
+.opencode
+.github
+client
+dashboard
+docs
+factory
+scripts
+server
+Makefile
+README.md
+AGENTS.md
+collector/collector

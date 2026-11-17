@@ -1,0 +1,3 @@
+module jarvis/actions
+
+go 1.27.2

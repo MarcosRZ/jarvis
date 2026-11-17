@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"jarvis/client/internal/actions"
+	"jarvis/actions"
 	"jarvis/client/internal/commands"
 )
 

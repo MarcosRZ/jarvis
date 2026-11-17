@@ -18,6 +18,8 @@ Supported domains include light, switch, input_boolean, fan, cover, valve, lock,
 
 The catalog is rebuilt at start and when the last read is older than 30 seconds. A new, removed or unavailable entity can take up to 30 seconds to change the local actions.
 
+The dashboard `Actions` page shows the same catalog. The collector reads the Home Assistant exposure list and entity states, applies the same generation rules and caches the result for 30 seconds. It requires `VOICE_HA_URL` and `VOICE_HA_TOKEN` in `server/.env`; keep them aligned with `client/.env` so the page matches the running assistant. The page lists only the deterministic catalog: built-in intents, learned associations and the Home Assistant conversation agent are not part of it.
+
 ## Language model
 
 `VOICE_LLM_MODE=fallback` asks the model only when the built-in parser, learned memory and catalog do not resolve the sentence. `off` disables it.

@@ -1,7 +1,9 @@
 FROM golang:1.27-alpine AS build
 WORKDIR /src
-COPY go.mod ./
-COPY *.go ./
+COPY shared/actions/go.mod shared/actions/*.go ./shared/actions/
+WORKDIR /src/collector
+COPY collector/go.mod collector/go.sum ./
+COPY collector/*.go ./
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/collector .
 
 FROM scratch

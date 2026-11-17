@@ -4,8 +4,11 @@ import { cn } from "cn";
 const badgeStyles: Record<string, string> = {
   operational: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
   operativo: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+  live: "border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
   degraded: "border-amber-500/30 text-amber-600 dark:text-amber-400",
+  stale: "border-amber-500/30 text-amber-600 dark:text-amber-400",
   unavailable: "border-destructive/30 text-destructive",
+  disabled: "border-border text-muted-foreground",
   loading: "border-border text-muted-foreground",
 };
 

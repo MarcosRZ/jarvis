@@ -106,6 +106,8 @@ commands:
 | `LLM_THREADS` | CPU threads for the model |
 | `HA_PORT` | Development Home Assistant port |
 | `DASHBOARD_PORT` | Dashboard port, default `3005` |
+| `VOICE_HA_URL` | Home Assistant URL used by the collector for status, uptime and the action catalog |
+| `VOICE_HA_TOKEN` | Long-lived token used by the collector; keep it aligned with `client/.env` |
 
 The remaining model and port settings are documented in `server/.env.example`.
 
