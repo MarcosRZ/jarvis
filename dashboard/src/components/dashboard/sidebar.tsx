@@ -12,8 +12,15 @@ import {
 import { cn } from "cn";
 import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/dashboard/logo";
+import { useLiveData } from "@/components/dashboard/live-data-provider";
+import { useReadNotificationIds } from "@/lib/notification-read-state";
 
-const primaryNav = [
+const primaryNav: {
+  label: string;
+  href: string;
+  icon: typeof LayoutDashboard;
+  badge?: string;
+}[] = [
   { label: "General", href: "/", icon: LayoutDashboard },
   { label: "Servicios", href: "/servicios", icon: Server },
   { label: "Registros", href: "/registros", icon: ScrollText },
@@ -21,13 +28,14 @@ const primaryNav = [
     label: "Notificaciones",
     href: "/notificaciones",
     icon: Bell,
-    badge: "3",
   },
 ];
 
-const secondaryNav = [
-  { label: "Settings", href: "/settings", icon: Settings },
-];
+const secondaryNav: {
+  label: string;
+  href: string;
+  icon: typeof Settings;
+}[] = [{ label: "Settings", href: "/settings", icon: Settings }];
 
 function NavItem({
   label,
@@ -86,6 +94,28 @@ function NavItem({
 }
 
 export function SidebarContent() {
+  const { snapshot, loading, error, sourceError } = useLiveData();
+  const issue = error ?? sourceError;
+  const readIds = useReadNotificationIds();
+  const notifications = snapshot?.notifications ?? [];
+  const unread = notifications.filter(
+    (notification) => !readIds.includes(notification.id),
+  ).length;
+  const services = snapshot?.metrics.services;
+  const statusText = issue
+    ? "Live data unavailable."
+    : loading || !services
+      ? "Loading service status..."
+      : `${services.active} of ${services.total} services active${
+          services.stopped > 0 ? `. ${services.stopped} stopped.` : "."
+        }`;
+  const statusTone = issue
+    ? "bg-destructive"
+    : loading || !services || services.stopped > 0
+      ? "bg-amber-500"
+      : "bg-emerald-500";
+  const sourceLabel = snapshot && !issue ? "live data" : "no data";
+
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-16 items-center border-b border-sidebar-border px-5">
@@ -98,7 +128,17 @@ export function SidebarContent() {
             Principal
           </p>
           {primaryNav.map((item) => (
-            <NavItem key={item.label} {...item} />
+            <NavItem
+              key={item.label}
+              {...item}
+              badge={
+                item.href === "/notificaciones" && unread > 0
+                  ? String(unread)
+                  : item.href === "/notificaciones"
+                    ? undefined
+                    : item.badge
+              }
+            />
           ))}
         </div>
 
@@ -116,17 +156,22 @@ export function SidebarContent() {
         <div className="border border-sidebar-border bg-background/60 p-3">
           <div className="flex items-center gap-2">
             <span className="relative flex size-2">
-              <span className="absolute inline-flex size-full animate-ping bg-emerald-500 opacity-60" />
-              <span className="relative inline-flex size-2 bg-emerald-500" />
+              <span
+                className={cn(
+                  "absolute inline-flex size-full animate-ping opacity-60",
+                  statusTone,
+                )}
+              />
+              <span className={cn("relative inline-flex size-2", statusTone)} />
             </span>
             <span className="text-xs font-semibold">Sistema operativo</span>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            5 de 6 servicios activos. Home Assistant esta detenido.
+            {statusText}
           </p>
           <div className="mt-3 flex items-center justify-between border-t border-sidebar-border pt-2 text-[10px] uppercase tracking-wide text-muted-foreground">
             <span>v0.1.0</span>
-            <span>host: mini-pc</span>
+            <span>{sourceLabel}</span>
           </div>
         </div>
       </div>

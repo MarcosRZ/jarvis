@@ -173,14 +173,51 @@ services:
       start_period: 120s
       start_interval: 3s
 
+  collector:
+    build:
+      context: ../collector
+    container_name: m4nhattan-collector
+    environment:
+      COLLECTOR_LISTEN_ADDR: ":8090"
+      COLLECTOR_COMPOSE_PROJECT: voice-assistant
+      COLLECTOR_DOCKER_SOCKET: /var/run/docker.sock
+      VOICE_HA_URL: ${VOICE_HA_URL:-}
+      VOICE_HA_TOKEN: ${VOICE_HA_TOKEN:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    group_add:
+      # Native Linux keeps the host socket group; Docker Desktop presents the
+      # socket as root:root inside the container, so the non-root user also
+      # needs group 0 to open it.
+      - "${DOCKER_SOCKET_GID:-973}"
+      - "0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/collector", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   dashboard:
     build:
       context: ../dashboard
     container_name: m4nhattan-dashboard
+    environment:
+      COLLECTOR_URL: http://collector:8090
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-3005}:3000"
     volumes:
       - dashboard-data:/data
+    depends_on:
+      - collector
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/"]

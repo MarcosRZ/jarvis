@@ -40,6 +40,20 @@ echo "==> go vet"
 echo "==> go test"
 (cd "$target/client" && go test ./...)
 
+echo "==> collector gofmt"
+unformatted="$(cd "$target/collector" && gofmt -l .)"
+if [ -n "$unformatted" ]; then
+  echo "checks: collector gofmt needed:" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
+
+echo "==> collector go vet"
+(cd "$target/collector" && go vet ./...)
+
+echo "==> collector go test"
+(cd "$target/collector" && go test ./...)
+
 echo "==> dashboard lint and build"
 docker run --rm \
   --user "$(id -u):$(id -g)" \

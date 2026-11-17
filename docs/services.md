@@ -24,6 +24,7 @@ Configuration comes from `server/.env`. Copy `server/.env.example` to `server/.e
 | Piper | 10200 | Speech output |
 | llama.cpp | 8080 | Optional local language model |
 | dashboard | 3005 | M4nhattan status dashboard |
+| collector | none (internal 8090) | Read-only Docker API collector for the dashboard |
 | Home Assistant (dev) | 8123 | Development only, with `make ha-up` |
 
 Ports bind to `127.0.0.1` by default. Set `BIND_ADDRESS=0.0.0.0` only on a trusted network: the services have no authentication. Keep the model port on `127.0.0.1` unless another machine needs it (`LLM_BIND_ADDRESS`).
@@ -74,6 +75,26 @@ If a download is interrupted, Whisper can fail with `Unable to open file 'model.
 Open http://127.0.0.1:3005/settings to edit the language model prompt. It is stored in the `dashboard-data` volume and served at `/api/settings/prompt`. The client reads it at startup through `VOICE_PROMPT_URL`; restart the assistant after saving.
 
 The editor shows the built-in prompt when no custom prompt is saved. `Reset to built-in` removes the custom prompt. `{{context}}` is replaced with the read-only Home Assistant context.
+
+## Dashboard live data
+
+The dashboard does not have the Docker socket. The `collector` service is the only consumer: it mounts `/var/run/docker.sock` read-only, runs as a non-root user with a read-only filesystem, drops all capabilities and does not publish a port. The dashboard route handlers call it on the compose network and expose `GET /api/status` and `GET /api/logs` to the browser.
+
+The collector reads only an allowlist of compose services and makes read-only Docker API calls. It never proxies arbitrary Docker paths or container ids. Log lines are capped and common token patterns are redacted.
+
+The collector keeps a background snapshot refreshed every 2 seconds and serves that cached copy to status requests. If Docker is temporarily unavailable, the API keeps serving the last good snapshot with the Docker source marked unavailable instead of returning empty services.
+
+The collector container needs read access to the socket group:
+
+```sh
+stat -c '%g' /var/run/docker.sock   # for example 973
+```
+
+`make services-up` passes the host group id automatically. For a direct `docker compose` call, set `DOCKER_SOCKET_GID` in `server/.env`. Compose also adds group 0 because Docker Desktop exposes the mounted socket as `root:root` inside the container.
+
+Set `VOICE_HA_URL` and `VOICE_HA_TOKEN` in `server/.env` to add the external Home Assistant status card and, when a System Monitor `last_boot` or uptime sensor exists, the host uptime. Without them the Home Assistant card is offline and host uptime shows `—`.
+
+The standalone `dashboard/compose.yaml` does not include the collector. It is useful for UI work only; live data routes report the collector as unavailable.
 
 ## Text and log endpoints
 

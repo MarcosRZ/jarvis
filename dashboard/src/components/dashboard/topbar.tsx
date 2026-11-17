@@ -23,7 +23,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { MobileNav } from "@/components/dashboard/mobile-nav";
 import { ThemeToggle } from "@/components/dashboard/theme-toggle";
-import { notifications } from "@/lib/mock-data";
+import { useLiveData } from "@/components/dashboard/live-data-provider";
+import { formatRelativeTime } from "@/lib/live-data";
+import { useReadNotificationIds } from "@/lib/notification-read-state";
 
 const typeColor: Record<string, string> = {
   error: "bg-destructive",
@@ -42,7 +44,11 @@ const pageLabels: Record<string, string> = {
 
 export function Topbar() {
   const pathname = usePathname();
-  const unread = notifications.filter((notification) => !notification.read);
+  const { snapshot, error, sourceError } = useLiveData();
+  const issue = error ?? sourceError;
+  const readIds = useReadNotificationIds();
+  const notifications = snapshot?.notifications ?? [];
+  const unread = notifications.filter((notification) => !readIds.includes(notification.id));
   const current = pageLabels[pathname] ?? "General";
 
   return (
@@ -89,7 +95,7 @@ export function Topbar() {
             <DropdownMenuLabel className="flex items-center justify-between">
               <span>Notificaciones</span>
               <span className="text-xs font-normal text-muted-foreground">
-                {unread.length} sin leer
+                {issue ? "unavailable" : `${unread.length} unread`}
               </span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -104,11 +110,16 @@ export function Topbar() {
                 <span className="flex flex-col gap-0.5">
                   <span className="text-sm font-medium">{notification.title}</span>
                   <span className="text-xs text-muted-foreground">
-                    {notification.time}
+                    {formatRelativeTime(notification.time)}
                   </span>
                 </span>
               </DropdownMenuItem>
             ))}
+            {notifications.length === 0 && (
+              <div className="px-2 py-3 text-sm text-muted-foreground">
+                {issue ? "Live data unavailable." : "No notifications."}
+              </div>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/notificaciones" className="justify-center text-sm">

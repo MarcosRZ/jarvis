@@ -1,5 +1,6 @@
 import {
   AudioLines,
+  Box,
   Brain,
   House,
   LayoutDashboard,
@@ -13,7 +14,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import type { Service, ServiceStatus } from "@/lib/mock-data";
+import {
+  formatDuration,
+  formatMemory,
+  formatPercent,
+  unknownValue,
+  type Service,
+  type ServiceStatus,
+} from "@/lib/live-data";
 
 const icons = {
   model: Waves,
@@ -22,6 +30,7 @@ const icons = {
   brain: Brain,
   home: House,
   dashboard: LayoutDashboard,
+  unknown: Box,
 };
 
 const statusStyles: Record<
@@ -55,17 +64,20 @@ const statusStyles: Record<
 };
 
 export function ServiceCard({ service }: { service: Service }) {
-  const Icon = icons[service.icon];
+  const Icon = icons[service.icon] ?? icons.unknown;
   const status = statusStyles[service.status];
-  const memoryPct = Math.round(
-    (service.memoryMb / service.memoryLimitMb) * 100,
-  );
+  const memoryPct =
+    service.memoryMb !== null && service.memoryLimitMb !== null && service.memoryLimitMb > 0
+      ? Math.round((service.memoryMb / service.memoryLimitMb) * 100)
+      : null;
   const memoryColor =
-    memoryPct >= 90
-      ? "[&>[data-slot=progress-indicator]]:bg-destructive"
-      : memoryPct >= 75
-        ? "[&>[data-slot=progress-indicator]]:bg-amber-500"
-        : "";
+    memoryPct === null
+      ? ""
+      : memoryPct >= 90
+        ? "[&>[data-slot=progress-indicator]]:bg-destructive"
+        : memoryPct >= 75
+          ? "[&>[data-slot=progress-indicator]]:bg-amber-500"
+          : "";
 
   return (
     <Card className="gap-0 py-0">
@@ -86,7 +98,7 @@ export function ServiceCard({ service }: { service: Service }) {
             {service.description}
           </p>
           <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground/80">
-            {service.image}
+            {service.image || "no container"}
           </p>
         </div>
         <Badge
@@ -107,42 +119,47 @@ export function ServiceCard({ service }: { service: Service }) {
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
             CPU
           </p>
-          <p className="text-sm font-medium tabular-nums">{service.cpu}%</p>
+          <p className="text-sm font-medium tabular-nums">
+            {formatPercent(service.cpu)}
+          </p>
         </div>
         <div className="px-2 py-2.5">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
             Memoria
           </p>
           <p className="text-sm font-medium tabular-nums">
-            {Math.round(service.memoryMb / 102.4) / 10} GB
+            {formatMemory(service.memoryMb)}
           </p>
         </div>
         <div className="px-2 py-2.5">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
             Uptime
           </p>
-          <p className="text-sm font-medium tabular-nums">{service.uptime}</p>
+          <p className="text-sm font-medium tabular-nums">
+            {formatDuration(service.uptimeSeconds)}
+          </p>
         </div>
       </div>
 
       <div className="space-y-2 p-4">
         <div className="flex items-center justify-between text-[11px]">
           <span className="text-muted-foreground">
-            Memoria: {service.memoryMb} / {service.memoryLimitMb} MB
+            Memoria: {formatMemory(service.memoryMb)} /{" "}
+            {service.memoryLimitMb === null ? unknownValue : formatMemory(service.memoryLimitMb)}
           </span>
           <span className="font-medium tabular-nums text-muted-foreground">
-            {memoryPct}%
+            {memoryPct === null ? unknownValue : `${memoryPct}%`}
           </span>
         </div>
         <Progress
-          value={memoryPct}
+          value={memoryPct ?? 0}
           className={cn("h-1.5 rounded-none bg-muted", memoryColor)}
         />
       </div>
 
       <div className="mt-auto flex items-center justify-between gap-2 border-t px-4 py-3">
         <span className="font-mono text-[10px] text-muted-foreground">
-          :{service.port}
+          {service.port === null ? unknownValue : `:${service.port}`}
         </span>
         <div className="flex items-center gap-2">
           <Button

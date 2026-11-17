@@ -35,6 +35,7 @@ windows:
 
 test:
 	cd $(CLIENT_DIR) && go test ./...
+	cd collector && go test ./...
 
 # The Home Assistant tests run when the development Home Assistant is set up (make ha-up).
 integration:
@@ -46,6 +47,9 @@ lint:
 	@unformatted="$$(cd $(CLIENT_DIR) && gofmt -l .)"; \
 	if [ -n "$$unformatted" ]; then echo "gofmt needed:"; echo "$$unformatted"; exit 1; fi
 	cd $(CLIENT_DIR) && go vet ./...
+	@unformatted="$$(cd collector && gofmt -l .)"; \
+	if [ -n "$$unformatted" ]; then echo "collector gofmt needed:"; echo "$$unformatted"; exit 1; fi
+	cd collector && go vet ./...
 
 clean:
 	rm -rf $(BIN_DIR)
@@ -59,7 +63,7 @@ llm-model:
 	fi
 
 services-up: llm-model
-	cd $(SERVER_DIR) && docker compose up -d --build --wait
+	cd $(SERVER_DIR) && DOCKER_SOCKET_GID=$$(stat -c '%g' /var/run/docker.sock 2>/dev/null || echo 973) docker compose up -d --build --wait
 
 services-down:
 	cd $(SERVER_DIR) && $(HA_COMPOSE) down
