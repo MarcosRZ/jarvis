@@ -29,6 +29,6 @@
 - Dashboard notifications are derived from observed container transitions. Read state lives in the browser, so it is per browser profile, resets with site data, and is not a durable audit log.
 - Container logs do not carry a severity field. The dashboard infers `info`, `warn`, `error` and `debug` from the message text; the badge is a filter aid, not an authoritative level.
 - Dashboard status is served from a background snapshot refreshed every 2 seconds, so it can be up to about 2 seconds old. This keeps requests fast and avoids blocking on Docker stats.
-- Service counts and container memory/CPU metrics cover Docker containers only. Home Assistant is reported as a separate source and is not part of those totals.
+- Service counts and container memory/CPU metrics cover Docker containers only. Home Assistant is reported as a separate source and is not part of those totals. The development Home Assistant started by `make ha-up` is not listed as a service.
 - Host uptime is available only when `VOICE_HA_URL` and `VOICE_HA_TOKEN` are set and Home Assistant exposes a System Monitor last-boot or uptime sensor. Otherwise it shows `—`.
 - The dashboard log view covers containers only. It does not read the assistant transcript log, which stays off unless `VOICE_LOG_TRANSCRIPTS` is enabled.

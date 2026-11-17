@@ -133,6 +133,16 @@ func (c *collector) buildSnapshot(ctx context.Context) Snapshot {
 	semaphore := make(chan struct{}, 4)
 	var wait sync.WaitGroup
 	for index, definition := range serviceRegistry {
+		if definition.ExternalHA {
+			// Home Assistant runs outside the monitored stack. The compose
+			// project also contains the development Home Assistant, but that
+			// container is not a service: only the configured instance is
+			// reported, and it is omitted entirely when VOICE_HA_URL is unset.
+			if haResult != nil && haResult.HomeAssistant != nil {
+				services[index] = *haResult.HomeAssistant
+			}
+			continue
+		}
 		container, ok := byService[definition.ID]
 		if ok {
 			wait.Add(1)
@@ -144,10 +154,6 @@ func (c *collector) buildSnapshot(ctx context.Context) Snapshot {
 			}(index, definition, container)
 			continue
 		}
-		if definition.ExternalHA && haResult != nil && haResult.HomeAssistant != nil {
-			services[index] = *haResult.HomeAssistant
-			continue
-		}
 		services[index] = Service{
 			ID:          definition.ID,
 			Name:        definition.Name,
@@ -157,7 +163,14 @@ func (c *collector) buildSnapshot(ctx context.Context) Snapshot {
 		}
 	}
 	wait.Wait()
-	snapshot.Services = services
+
+	monitored := make([]Service, 0, len(services))
+	for _, service := range services {
+		if service.ID != "" {
+			monitored = append(monitored, service)
+		}
+	}
+	snapshot.Services = monitored
 
 	snapshot.Sources = SnapshotSources{
 		Docker:        dockerStatus,

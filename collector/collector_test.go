@@ -194,8 +194,8 @@ func TestSnapshotBuild(t *testing.T) {
 	app := newCollector(cfg, fake, nil)
 	snapshot := app.buildSnapshot(context.Background())
 
-	if len(snapshot.Services) != len(serviceRegistry) {
-		t.Fatalf("got %d services, want %d", len(snapshot.Services), len(serviceRegistry))
+	if len(snapshot.Services) != len(serviceRegistry)-1 {
+		t.Fatalf("got %d services, want %d", len(snapshot.Services), len(serviceRegistry)-1)
 	}
 	statuses := map[string]ServiceStatus{}
 	for _, service := range snapshot.Services {
@@ -220,6 +220,48 @@ func TestSnapshotBuild(t *testing.T) {
 	}
 	if snapshot.Sources.Docker.State != SourceOK {
 		t.Errorf("docker source = %q, want ok", snapshot.Sources.Docker.State)
+	}
+}
+
+func TestSnapshotHidesDevelopmentHomeAssistant(t *testing.T) {
+	now := time.Now().UTC()
+	started := now.Add(-time.Hour).Format(time.RFC3339Nano)
+	fake := &fakeDocker{
+		containers: []dockerContainer{
+			{ID: "ha1", Image: "homeassistant:dev", State: "running", Labels: labels("homeassistant")},
+		},
+		inspects: map[string]dockerInspect{"ha1": inspectFor(started, "", 8123, 8123)},
+	}
+	cfg := config{ComposeProject: "voice-assistant", RequestTimeout: time.Second, LogTail: 10}
+
+	// The development container in the compose project is not reported when
+	// no external Home Assistant is configured.
+	app := newCollector(cfg, fake, nil)
+	snapshot := app.buildSnapshot(context.Background())
+	for _, service := range snapshot.Services {
+		if service.ID == "homeassistant" {
+			t.Fatal("development Home Assistant must not be reported as a service")
+		}
+	}
+
+	// A configured instance is still reported, using the source result rather
+	// than the local development container.
+	server := newFakeHAServer(t, nil, nil)
+	defer server.Close()
+	home := newHomeAssistantClient(homeAssistantConfig{URL: server.URL, Token: "token"}, time.Second)
+	app = newCollector(cfg, fake, home)
+	snapshot = app.buildSnapshot(context.Background())
+	found := false
+	for _, service := range snapshot.Services {
+		if service.ID == "homeassistant" {
+			found = true
+			if service.Status != StatusOnline {
+				t.Errorf("home assistant status = %q, want online", service.Status)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("configured Home Assistant was not reported")
 	}
 }
 

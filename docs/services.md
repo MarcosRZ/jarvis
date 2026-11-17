@@ -96,7 +96,7 @@ stat -c '%g' /var/run/docker.sock   # for example 973
 
 `make services-up` passes the host group id automatically. For a direct `docker compose` call, set `DOCKER_SOCKET_GID` in `server/.env`. Compose also adds group 0 because Docker Desktop exposes the mounted socket as `root:root` inside the container.
 
-Set `VOICE_HA_URL` and `VOICE_HA_TOKEN` in `server/.env` to add the external Home Assistant status card, the dashboard action catalog and, when a System Monitor `last_boot` or uptime sensor exists, the host uptime. Without them the Home Assistant card is offline, the action catalog is disabled and host uptime shows `—`. Keep these values aligned with `client/.env`, so the dashboard catalog matches the running assistant.
+Set `VOICE_HA_URL` and `VOICE_HA_TOKEN` in `server/.env` to add the external Home Assistant status card, the dashboard action catalog and, when a System Monitor `last_boot` or uptime sensor exists, the host uptime. Without them the Home Assistant card is not shown, the action catalog is disabled and host uptime shows `—`. The development Home Assistant started by `make ha-up` is never listed as a service. Keep these values aligned with `client/.env`, so the dashboard catalog matches the running assistant.
 
 The standalone `dashboard/compose.yaml` does not include the collector. It is useful for UI work only; live data routes report the collector as unavailable.
 
