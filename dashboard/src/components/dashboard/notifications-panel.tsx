@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Bell,
   CheckCheck,
@@ -17,6 +18,7 @@ import { formatRelativeTime } from "@/lib/live-data";
 import {
   markNotificationRead,
   markNotificationsRead,
+  readNotificationIds,
   useReadNotificationIds,
 } from "@/lib/notification-read-state";
 
@@ -39,7 +41,20 @@ export function NotificationsPanel() {
   const readIds = useReadNotificationIds();
   const notifications = snapshot?.notifications ?? [];
   const issue = error ?? sourceError;
-  const unread = notifications.filter((notification) => !readIds.includes(notification.id));
+
+  // Read notifications stay visible during the current visit so the user can
+  // see what they just marked. Once the view is closed and reopened, they are
+  // archived and no longer listed. Capturing the read state when the view
+  // mounts gives that behavior without an unmount hook that StrictMode would
+  // fire prematurely. Reading localStorage during the client render is safe
+  // here because the panel only lists notifications after the snapshot loads.
+  const [archivedIds] = useState<string[]>(() =>
+    typeof window === "undefined" ? [] : readNotificationIds(),
+  );
+
+  const archived = new Set(archivedIds);
+  const visible = notifications.filter((notification) => !archived.has(notification.id));
+  const unread = visible.filter((notification) => !readIds.includes(notification.id));
 
   return (
     <Card className="gap-0 py-0" id="notifications">
@@ -71,7 +86,7 @@ export function NotificationsPanel() {
               </div>
             ))}
           </div>
-        ) : notifications.length === 0 ? (
+        ) : visible.length === 0 ? (
           <div className="flex items-center justify-between gap-2 p-5" role="status">
             <p className="text-sm text-muted-foreground">
               {issue ? "Notifications unavailable." : "No notifications."}
@@ -88,7 +103,7 @@ export function NotificationsPanel() {
           </div>
         ) : (
           <ul className="divide-y">
-            {notifications.map((notification) => {
+            {visible.map((notification) => {
               const Icon = icons[notification.type];
               const isRead = readIds.includes(notification.id);
               return (
@@ -126,13 +141,13 @@ export function NotificationsPanel() {
             })}
           </ul>
         )}
-        {notifications.length > 0 && (
+        {visible.length > 0 && (
           <div className="border-t p-3">
             <Button
               variant="ghost"
               size="sm"
               className="w-full justify-center text-xs"
-              onClick={() => markNotificationsRead(notifications.map((notification) => notification.id))}
+              onClick={() => markNotificationsRead(visible.map((notification) => notification.id))}
               disabled={unread.length === 0}
             >
               <CheckCheck className="size-3.5" />

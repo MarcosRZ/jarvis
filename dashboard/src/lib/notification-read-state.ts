@@ -89,3 +89,7 @@ export function markNotificationsRead(ids: string[]) {
 export function useReadNotificationIds(): string[] {
   return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
+
+export function readNotificationIds(): string[] {
+  return readFromStorage();
+}
