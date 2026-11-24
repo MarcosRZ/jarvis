@@ -31,7 +31,8 @@
 - Client: `cd client && go test ./... && go vet ./...`
 - Shared action catalog: `cd shared/actions && go test ./... && go vet ./...`
 - Collector: `cd collector && go test ./... && go vet ./...`
-- Format: `make lint` (gofmt and go vet for the client, shared actions and collector).
+- News: `cd news && go test ./... && go vet ./...`
+- Format: `make lint` (gofmt and go vet for the client, shared actions, collector and news).
 - Dashboard: the host has no Node. Use Docker, for example
   `docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -e npm_config_cache=/tmp/npm-cache -v "$PWD/dashboard:/app" -w /app node:22-alpine sh -c 'npm ci --no-audit --no-fund && npm run lint && npm run build'`.
 - Full factory gate: `factory/checks.sh [checkout]`. It runs the Go checks and

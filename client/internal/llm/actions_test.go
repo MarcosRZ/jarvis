@@ -11,6 +11,7 @@ import (
 
 	"jarvis/actions"
 	"jarvis/client/internal/commands"
+	"jarvis/client/internal/learning"
 )
 
 func actionCatalog() []actions.Action {
@@ -27,6 +28,23 @@ func actionCatalog() []actions.Action {
 			EntityID:    "scene.cine", Domain: "scene", Service: "scene.turn_on",
 			Aliases: []string{"escena"},
 		},
+	}
+}
+
+func TestActionsPromptIncludesLearnedAssociations(t *testing.T) {
+	prompt := actionsPromptWithLearning(actionCatalog(), "", []learning.Entry{
+		{Text: "macro 1", Action: "scene.cine.turn_on", Score: 3},
+		{Text: "missing", Action: "scene.gone.turn_on", Score: 1},
+		{Text: "penalized", Action: "scene.cine.turn_on", Score: -1},
+	})
+	if !strings.Contains(prompt, "Usuario: macro 1\nAsistente: {\"commands\": [{\"action\": \"scene.cine.turn_on\"}]}") {
+		t.Errorf("prompt is missing the learned example:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "scene.gone.turn_on") {
+		t.Error("prompt must not list an action outside the catalog")
+	}
+	if strings.Contains(prompt, "penalized") {
+		t.Error("the caller must pass only active entries")
 	}
 }
 

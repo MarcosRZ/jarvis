@@ -297,7 +297,16 @@ export default function LearningPage() {
       if (!normalizedQuery) {
         return true;
       }
-      return [entry.text, entry.name, entry.device, entry.action, entry.kind]
+      return [
+        entry.text,
+        entry.name,
+        entry.device,
+        entry.action,
+        entry.template,
+        entry.reply,
+        entry.pending ? "pending" : undefined,
+        entry.kind,
+      ]
         .filter((value): value is string => typeof value === "string")
         .some((value) => value.toLowerCase().includes(normalizedQuery));
     });

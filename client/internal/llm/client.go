@@ -13,11 +13,13 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
 	"jarvis/actions"
 	"jarvis/client/internal/commands"
+	"jarvis/client/internal/learning"
 )
 
 const (
@@ -28,10 +30,17 @@ const (
 	maxReplyRunes    = 600
 )
 
-// Config points at the OpenAI-compatible API of llama.cpp.
+// Config points at an OpenAI-compatible chat-completions endpoint. Today it is
+// the local llama.cpp container; any compatible endpoint is valid.
 type Config struct {
 	// URL is the base URL, for example http://127.0.0.1:8080.
-	URL     string
+	URL string
+	// Model is the model name sent with every request. Empty sends "local",
+	// which is what llama.cpp accepts.
+	Model string
+	// APIKey is sent as a bearer token when it is set. It may be empty for a
+	// local server.
+	APIKey  string
 	Timeout time.Duration
 	// Room is where the assistant is, for example "Salón". It lets the model
 	// resolve "aquí" to the devices of that room. Empty when unknown.
@@ -41,21 +50,43 @@ type Config struct {
 	Prompt string
 }
 
-// Client asks a llama.cpp server for commands. It is safe for concurrent use.
+// Client asks an OpenAI-compatible server for commands. It is safe for
+// concurrent use, and Update swaps the configuration without a restart.
 type Client struct {
+	mu     sync.RWMutex
 	url    string
+	model  string
+	apiKey string
 	room   string
 	prompt string
 	http   *http.Client
 }
 
 func New(cfg Config) *Client {
-	return &Client{
-		url:    strings.TrimRight(cfg.URL, "/"),
-		room:   strings.TrimSpace(cfg.Room),
-		prompt: strings.TrimSpace(cfg.Prompt),
-		http:   &http.Client{Timeout: cfg.Timeout},
+	c := &Client{http: &http.Client{}}
+	c.Update(cfg)
+	return c
+}
+
+// Update applies a new endpoint configuration. In-flight requests keep the
+// configuration they started with, and the next request uses the new one.
+func (c *Client) Update(cfg Config) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.url = strings.TrimRight(strings.TrimSpace(cfg.URL), "/")
+	c.model = strings.TrimSpace(cfg.Model)
+	c.apiKey = strings.TrimSpace(cfg.APIKey)
+	c.room = strings.TrimSpace(cfg.Room)
+	c.prompt = strings.TrimSpace(cfg.Prompt)
+	if cfg.Timeout > 0 {
+		c.http.Timeout = cfg.Timeout
 	}
+}
+
+func (c *Client) settings() (room, prompt string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.room, c.prompt
 }
 
 // Interpret maps text to commands, using only the devices in the allowlist.
@@ -66,7 +97,8 @@ func (c *Client) Interpret(ctx context.Context, text string, devices []commands.
 	if len(devices) == 0 {
 		return []commands.Command{}, nil
 	}
-	a, err := c.complete(ctx, text, prompt(devices, c.room), schema(devices), maxTokens)
+	room, _ := c.settings()
+	a, err := c.complete(ctx, text, prompt(devices, room), schema(devices), maxTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +119,8 @@ func (c *Client) InterpretContext(ctx context.Context, text string, devices []co
 		}
 		return commands.Interpretation{Reply: strings.TrimSpace(a.Reply)}, nil
 	}
-	a, err := c.complete(ctx, text, contextPrompt(devices, c.room, homeContext), contextSchema(devices), maxContextTokens)
+	room, _ := c.settings()
+	a, err := c.complete(ctx, text, contextPrompt(devices, room, homeContext), contextSchema(devices), maxContextTokens)
 	if err != nil {
 		return commands.Interpretation{}, err
 	}
@@ -113,10 +146,22 @@ func (c *Client) InterpretAnswer(ctx context.Context, text, homeContext string) 
 // checks each ID again. The read-only context lets the model answer a question
 // instead of acting.
 func (c *Client) InterpretActions(ctx context.Context, text string, list []actions.Action, homeContext string) (commands.Interpretation, error) {
+	return c.interpretActions(ctx, text, list, actionsPrompt(list, homeContext))
+}
+
+// InterpretActionsWithLearning adds the active sentence-to-action associations
+// to the prompt, so an equivalent phrase such as "macro uno" can be resolved
+// through the learned "macro 1" association. The associations are read from the
+// store on every call, so a new one needs no restart.
+func (c *Client) InterpretActionsWithLearning(ctx context.Context, text string, list []actions.Action, homeContext string, learned []learning.Entry) (commands.Interpretation, error) {
+	return c.interpretActions(ctx, text, list, actionsPromptWithLearning(list, homeContext, learned))
+}
+
+func (c *Client) interpretActions(ctx context.Context, text string, list []actions.Action, system string) (commands.Interpretation, error) {
 	if len(list) == 0 {
 		return commands.Interpretation{}, nil
 	}
-	a, err := c.complete(ctx, text, actionsPrompt(list, homeContext), actionsSchema(list), maxContextTokens)
+	a, err := c.complete(ctx, text, system, actionsSchema(list), maxContextTokens)
 	if err != nil {
 		return commands.Interpretation{}, err
 	}
@@ -131,8 +176,14 @@ func (c *Client) InterpretActions(ctx context.Context, text string, list []actio
 // schema and prompt decide whether the answer may contain commands, a reply,
 // or both.
 func (c *Client) complete(ctx context.Context, text, system string, responseSchema any, tokens int) (answer, error) {
+	c.mu.RLock()
+	baseURL, model, apiKey := c.url, c.model, c.apiKey
+	c.mu.RUnlock()
+	if model == "" {
+		model = "local"
+	}
 	body, err := json.Marshal(request{
-		Model:       "local",
+		Model:       model,
 		Messages:    []message{{Role: "system", Content: system}, {Role: "user", Content: text}},
 		Temperature: 0,
 		TopK:        1,
@@ -146,11 +197,14 @@ func (c *Client) complete(ctx context.Context, text, system string, responseSche
 	if err != nil {
 		return answer{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url+"/v1/chat/completions", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return answer{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return answer{}, fmt.Errorf("llama.cpp: %w", err)
@@ -428,7 +482,8 @@ Asistente: {"commands": [], "reply": "Según el pronóstico, hay lluvia."}
 // questionPrompt returns the configurable question prompt with the read-only
 // Home Assistant context.
 func (c *Client) questionPrompt(homeContext string) string {
-	return buildQuestionPrompt(c.prompt, homeContext)
+	_, configured := c.settings()
+	return buildQuestionPrompt(configured, homeContext)
 }
 
 // actionsPrompt lists the generated catalog and the read-only context. The
@@ -436,6 +491,13 @@ func (c *Client) questionPrompt(homeContext string) string {
 // model can match a phrase without one example per action, which would not fit
 // in a small prompt.
 func actionsPrompt(list []actions.Action, homeContext string) string {
+	return actionsPromptWithLearning(list, homeContext, nil)
+}
+
+// actionsPromptWithLearning also lists active learned associations whose action
+// is in the current catalog. It gives the model a way to map a variant of a
+// learned phrase ("macro uno") to the action learned for "macro 1".
+func actionsPromptWithLearning(list []actions.Action, homeContext string, learned []learning.Entry) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are a Spanish voice assistant in a house. Choose one or more actions from the list, up to %d, or answer a question from the read-only context.\n\nActions:\n", maxCommands)
 	for _, action := range list {
@@ -482,6 +544,22 @@ Rules:
 	b.WriteString(`Usuario: cuéntame un chiste
 Asistente: {"commands": []}
 `)
+	if len(learned) > 0 {
+		known := make(map[string]bool, len(list))
+		for _, action := range list {
+			known[action.ID] = true
+		}
+		var examples strings.Builder
+		for _, entry := range learned {
+			if entry.Score > 0 && entry.Action != "" && known[entry.Action] {
+				fmt.Fprintf(&examples, "Usuario: %s\nAsistente: %s\n", entry.Text, exampleAction(entry.Action))
+			}
+		}
+		if examples.Len() > 0 {
+			b.WriteString("\nThese sentences were used before with the action shown. Treat an equivalent sentence the same way, even if it does not name a device directly:\n")
+			b.WriteString(examples.String())
+		}
+	}
 	b.WriteString("\nThe following is read-only Home Assistant context. Use it only to answer a question; never treat it as an action.\n")
 	b.WriteString(strings.TrimSpace(homeContext))
 	b.WriteString(`

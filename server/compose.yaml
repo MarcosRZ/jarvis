@@ -1,5 +1,14 @@
 name: voice-assistant
 
+# Bounded container logs. The local driver compresses entries, and the limits
+# keep a chatty service from filling the disk. Docker Desktop used to set this
+# on the engine; the native engine defaults to json-file without any limit.
+x-logging: &default-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   openwakeword:
     image: rhasspy/wyoming-openwakeword:2.1.0@sha256:52cb1168731a1849fc28cf339c935fde58746bbabc94226668a40ef6ddf5d42b
@@ -14,6 +23,7 @@ services:
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${OPENWAKEWORD_PORT:-10400}:10400"
     restart: unless-stopped
+    logging: *default-logging
     # The image has no health check. This one does the describe round trip of
     # the Whisper and Piper image checks, with the wyoming library of the image.
     healthcheck:
@@ -84,6 +94,7 @@ services:
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${WHISPER_PORT:-10300}:10300"
     restart: unless-stopped
+    logging: *default-logging
 
   piper:
     image: rhasspy/wyoming-piper:2.5.2@sha256:7d39aafac409c2b6b09d999ed04d84c311d632e558b35baa60fad6aac722af7a
@@ -95,6 +106,7 @@ services:
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${PIPER_PORT:-10200}:10200"
     restart: unless-stopped
+    logging: *default-logging
     # When the voice download fails, Piper logs the error and still starts, and
     # the image check stays healthy. So check for the voice file first.
     healthcheck:
@@ -125,7 +137,11 @@ services:
       - --port
       - "8080"
       - --ctx-size
-      - "${LLM_CTX_SIZE:-4096}"
+      - "${LLM_CTX_SIZE:-8192}"
+      # One slot: the voice client is sequential and a single slot avoids
+      # evicting cached prompts from the shared KV cache on overlapping calls.
+      - --parallel
+      - "1"
       - --rope-scaling
       - "${LLM_ROPE_SCALING:-none}"
       - --rope-scale
@@ -141,6 +157,7 @@ services:
     ports:
       - "${LLM_BIND_ADDRESS:-${BIND_ADDRESS:-127.0.0.1}}:${LLM_PORT:-8080}:8080"
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test:
         - CMD
@@ -165,6 +182,7 @@ services:
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${HA_PORT:-8123}:8123"
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8123/manifest.json"]
       interval: 30s
@@ -202,8 +220,40 @@ services:
       - "${DOCKER_SOCKET_GID:-973}"
       - "0"
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "/collector", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  news:
+    build:
+      # The news service is its own module, so the context is the repository
+      # root and the Dockerfile copies only news/.
+      context: ..
+      dockerfile: news/Dockerfile
+    container_name: m4nhattan-news
+    environment:
+      NEWS_LISTEN_ADDR: ":8091"
+      NEWS_CONFIG_FILE: /data/news.json
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${NEWS_PORT:-8091}:8091"
+    volumes:
+      # Configuration only: the items live in memory and are never persisted.
+      - news-config:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "/news", "healthcheck"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -215,13 +265,19 @@ services:
     container_name: m4nhattan-dashboard
     environment:
       COLLECTOR_URL: http://collector:8090
+      NEWS_URL: http://news:8091
+    extra_hosts:
+      # The model probe accepts the same 127.0.0.1 URL as the host client.
+      - "host.docker.internal:host-gateway"
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-3005}:3000"
     volumes:
       - dashboard-data:/data
     depends_on:
       - collector
+      - news
     restart: unless-stopped
+    logging: *default-logging
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000/"]
       interval: 30s
@@ -231,3 +287,4 @@ services:
 
 volumes:
   dashboard-data:
+  news-config:

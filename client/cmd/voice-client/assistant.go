@@ -11,9 +11,11 @@ import (
 	"jarvis/client/internal/audio"
 	"jarvis/client/internal/commands"
 	"jarvis/client/internal/config"
+	"jarvis/client/internal/data"
 	"jarvis/client/internal/homeassistant"
 	"jarvis/client/internal/learning"
 	"jarvis/client/internal/llm"
+	"jarvis/client/internal/news"
 	"jarvis/client/internal/pipeline"
 	"jarvis/client/internal/stt"
 	"jarvis/client/internal/textinput"
@@ -35,6 +37,10 @@ const (
 	learningOperationCheck = 2 * time.Second
 	learningHeartbeat      = 60 * time.Second
 	learningPublishTimeout = 3 * time.Second
+
+	// dialogueWindow is how long an open conversational flow waits for an
+	// answer without a wake word before it repeats its prompt.
+	dialogueWindow = 10 * time.Second
 )
 
 // runAssistant connects the microphone, the voice services, the command
@@ -54,7 +60,8 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	}
 	detector := newDetector(cfg, capture.Format(), logger)
 	transcriber := stt.New(stt.Config{Addr: cfg.STTAddr, Language: cfg.STTLanguage, Timeouts: timeouts(cfg)})
-	handler, err := newCommandHandler(ctx, cfg, logger)
+	newsClient := &news.Client{URL: cfg.NewsURL, Timeout: haTimeout, PerFeed: 1}
+	handler, err := newCommandHandler(ctx, cfg, logger, newsClient)
 	if err != nil {
 		return stopCode(err, logger)
 	}
@@ -80,8 +87,9 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	handler.UseMatching(cfg.Matching, logger, guessLevel)
 	handler.UseRoom(cfg.Room)
 	handler.UseInference(cfg.LLMOrder, cfg.LLMSafety)
+	var llmClient *llm.Client
+	prompt := ""
 	if cfg.LLMMode != commands.InterpretOff {
-		prompt := ""
 		if cfg.PromptURL != "" {
 			loaded, err := llm.FetchPrompt(ctx, cfg.PromptURL, promptTimeout)
 			if err != nil {
@@ -91,11 +99,23 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 				logger.Info("language model prompt", "source", "dashboard", "url", cfg.PromptURL)
 			}
 		}
-		interpreter := llm.New(llm.Config{URL: cfg.LLMURL, Timeout: cfg.LLMTimeout, Room: cfg.Room, Prompt: prompt})
-		handler.UseInterpreter(interpreter, cfg.LLMMode)
-		logger.Info("language model", "url", cfg.LLMURL, "mode", cfg.LLMMode, "safety", cfg.LLMSafety, "order", cfg.LLMOrder, "room", cfg.Room)
+		llmClient = llm.New(llm.Config{
+			URL:     cfg.LLMURL,
+			Model:   cfg.LLMModel,
+			APIKey:  cfg.LLMAPIKey,
+			Timeout: cfg.LLMTimeout,
+			Room:    cfg.Room,
+			Prompt:  prompt,
+		})
+		handler.UseInterpreter(llmClient, cfg.LLMMode)
+		logger.Info("language model", "url", cfg.LLMURL, "model", cfg.LLMModel, "mode", cfg.LLMMode, "safety", cfg.LLMSafety, "order", cfg.LLMOrder, "room", cfg.Room)
 	}
+	go pollSettings(ctx, cfg, prompt, llmClient, newsClient, logger)
 	limits := recordLimits(cfg)
+	// A conversational flow waits 10 seconds for an answer without a wake
+	// word, then the prompt repeats.
+	dialogueLimits := limits
+	dialogueLimits.StartTimeout = dialogueWindow
 	var acknowledge func(context.Context) error
 	if cfg.BeepEnabled {
 		beep := cfg.Beep.PCM()
@@ -111,9 +131,13 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 		Record: func(ctx context.Context) (audio.Recording, error) {
 			return audio.Record(ctx, capture, capture.Format(), limits)
 		},
-		Transcribe:   transcriber.Transcribe,
-		Handle:       handler.Handle,
-		Say:          speaker.Say,
+		Transcribe: transcriber.Transcribe,
+		Handle:     handler.Handle,
+		Say:        speaker.Say,
+		Continue:   handler.FlowActive,
+		RecordDialogue: func(ctx context.Context) (audio.Recording, error) {
+			return audio.Record(ctx, capture, capture.Format(), dialogueLimits)
+		},
 		DiscardInput: capture.Discard,
 	}, logger)
 	p.LogTranscripts = cfg.LogTranscripts
@@ -133,9 +157,14 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 // that controls the lights and switches exposed in Home Assistant, reads that
 // list again every deviceRefresh, and sends every other sentence to the Home
 // Assistant conversation agent.
-func newCommandHandler(ctx context.Context, cfg config.Config, logger *slog.Logger) (*commands.Handler, error) {
+func newCommandHandler(ctx context.Context, cfg config.Config, logger *slog.Logger, newsClient data.News) (*commands.Handler, error) {
 	if cfg.HAURL == "" {
-		return commands.New(time.Now, nil, nil)
+		handler, err := commands.New(time.Now, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		handler.UseData(nil, newsClient)
+		return handler, nil
 	}
 	ha := homeassistant.New(homeassistant.Config{
 		URL:                 cfg.HAURL,
@@ -154,6 +183,7 @@ func newCommandHandler(ctx context.Context, cfg config.Config, logger *slog.Logg
 	handler.UseActionSource(ha, deviceRefresh, func(err error) { logger.Warn("Home Assistant actions", "error", err) })
 	handler.UseConversation(ha)
 	handler.UseContext(ha)
+	handler.UseData(ha, newsClient)
 	if err := handler.Refresh(ctx); err != nil {
 		if errors.Is(err, homeassistant.ErrUnauthorized) {
 			return nil, err

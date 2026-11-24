@@ -104,7 +104,7 @@ commands:
 | `PIPER_VOICE` | Voice downloaded and used by Piper |
 | `LLM_MODEL` | GGUF file in `server/models/llm` |
 | `LLM_BIND_ADDRESS` | Address for the model port |
-| `LLM_CTX_SIZE` | Context window; keep at least `4096` |
+| `LLM_CTX_SIZE` | Context window, default `8192` for two ~2k-token prompts in the shared KV cache |
 | `LLM_THREADS` | CPU threads for the model |
 | `HA_PORT` | Development Home Assistant port |
 | `DASHBOARD_PORT` | Dashboard port, default `3005` |

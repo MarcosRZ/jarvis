@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import {
   InvalidSettingsError,
+  keepPasswordValues,
   parseSettingsBody,
+  publicValues,
   readSettings,
   saveSettings,
 } from "@/lib/settings-server";
@@ -11,7 +13,7 @@ const noStore = { "Cache-Control": "no-store" };
 export async function GET() {
   try {
     return NextResponse.json(
-      { values: await readSettings() },
+      { values: publicValues(await readSettings()) },
       { headers: noStore },
     );
   } catch (error) {
@@ -36,7 +38,10 @@ export async function POST(request: Request) {
     );
   }
   try {
-    const values = await saveSettings(parseSettingsBody(body));
+    const incoming = parseSettingsBody(body);
+    const values = await saveSettings(
+      keepPasswordValues(incoming, await readSettings()),
+    );
     return NextResponse.json({ values }, { headers: noStore });
   } catch (error) {
     const status = error instanceof InvalidSettingsError ? 400 : 500;

@@ -49,6 +49,12 @@ type Steps struct {
 	Transcribe  func(ctx context.Context, format audio.Format, pcm []byte) (stt.Result, error)
 	Handle      func(ctx context.Context, text string) string
 	Say         func(ctx context.Context, text string) (tts.Timing, error)
+	// Continue reports whether a conversational flow is still open. The
+	// pipeline then keeps listening without a wake word after each reply.
+	Continue func() bool
+	// RecordDialogue records one reply of an open flow with a short response
+	// window. nil disables the dialogue turns.
+	RecordDialogue func(ctx context.Context) (audio.Recording, error)
 	// DiscardInput drops buffered microphone audio before listening again, so
 	// the assistant's own voice is never taken as a wake word or a command.
 	DiscardInput func()
@@ -189,7 +195,109 @@ func (p *Pipeline) serve(ctx context.Context) error {
 	}
 
 	p.enter(StateHandling, "stt_processing", res.Processing, "stt_total", res.Total)
-	return p.reply(ctx, p.steps.Handle(ctx, text), recorded)
+	reply := p.steps.Handle(ctx, text)
+	if err := p.reply(ctx, reply, recorded); err != nil {
+		return err
+	}
+	return p.dialogue(ctx, reply)
+}
+
+// dialogue serves the turns of an open conversational flow. Each turn listens
+// without a wake word, and no speech repeats the last prompt. It returns when
+// the flow closes or a step fails.
+func (p *Pipeline) dialogue(ctx context.Context, prompt string) error {
+	if p.steps.Continue == nil || p.steps.RecordDialogue == nil {
+		return nil
+	}
+	for p.steps.Continue() {
+		p.steps.DiscardInput()
+		p.enter(StateListening, "dialogue", true)
+		rec, req, err := p.waitDialogue(ctx)
+		if err != nil {
+			return err
+		}
+		if req != nil {
+			text := strings.TrimSpace(req.text)
+			p.enter(StateHandling, "source", "dialogue-text")
+			reply := p.steps.Handle(ctx, text)
+			req.respond(reply)
+			if err := p.reply(ctx, reply, time.Now()); err != nil {
+				return err
+			}
+			prompt = reply
+			continue
+		}
+		if rec.End == audio.EndNoSpeech {
+			if err := p.reply(ctx, prompt, time.Now()); err != nil {
+				return err
+			}
+			continue
+		}
+		p.enter(StateTranscribing, "recorded", rec.Format.Duration(len(rec.PCM)), "end", rec.End)
+		recorded := time.Now()
+		res, err := p.steps.Transcribe(ctx, rec.Format, rec.PCM)
+		clear(rec.PCM)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			p.logger.Error("transcription failed", "error", err)
+			return p.reply(ctx, ReplyServiceUnavailable, recorded)
+		}
+		text := strings.TrimSpace(res.Text)
+		level := slog.LevelDebug
+		if p.LogTranscripts {
+			level = slog.LevelInfo
+		}
+		p.logger.Log(ctx, level, "heard", "source", "dialogue", "text", text)
+		if text == "" {
+			if err := p.reply(ctx, prompt, time.Now()); err != nil {
+				return err
+			}
+			continue
+		}
+		p.enter(StateHandling, "source", "dialogue", "stt_processing", res.Processing)
+		reply := p.steps.Handle(ctx, text)
+		if err := p.reply(ctx, reply, recorded); err != nil {
+			return err
+		}
+		prompt = reply
+	}
+	return nil
+}
+
+// waitDialogue waits for the next turn of an open flow: a text request, or a
+// recording that ends after the response window with no speech.
+func (p *Pipeline) waitDialogue(ctx context.Context) (audio.Recording, *textRequest, error) {
+	type result struct {
+		rec audio.Recording
+		err error
+	}
+	recCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make(chan result, 1)
+	go func() {
+		rec, err := p.steps.RecordDialogue(recCtx)
+		results <- result{rec: rec, err: err}
+	}()
+	select {
+	case req := <-p.text:
+		cancel()
+		<-results
+		return audio.Recording{}, &req, nil
+	case r := <-results:
+		if r.err != nil {
+			if ctx.Err() != nil {
+				return audio.Recording{}, nil, ctx.Err()
+			}
+			return audio.Recording{}, nil, r.err
+		}
+		return r.rec, nil, nil
+	case <-ctx.Done():
+		cancel()
+		<-results
+		return audio.Recording{}, nil, ctx.Err()
+	}
 }
 
 // wait returns the next request: a pending text command, or one wake word. The
@@ -245,7 +353,10 @@ func (p *Pipeline) answerText(ctx context.Context, req textRequest) error {
 	p.enter(StateHandling, "source", "text")
 	reply := p.steps.Handle(ctx, text)
 	req.respond(reply)
-	return p.reply(ctx, reply, started)
+	if err := p.reply(ctx, reply, started); err != nil {
+		return err
+	}
+	return p.dialogue(ctx, reply)
 }
 
 // reply speaks text. since is the end of the recording, for the response latency.

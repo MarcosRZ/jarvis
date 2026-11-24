@@ -258,8 +258,8 @@ func TestHandleDoesNotRunACatalogActionWithoutAnExecutor(t *testing.T) {
 	interp := &fakeActionInterpreter{actionID: sceneCine.ID}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "pon la escena cine"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "pon la escena cine"); got != "Aún no sé procesar la orden pon la escena cine." {
+		t.Errorf("reply %q", got)
 	}
 	if len(interp.actionTexts) != 0 {
 		t.Errorf("interpreter called without an executor: %v", interp.actionTexts)

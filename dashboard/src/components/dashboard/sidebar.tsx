@@ -7,6 +7,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   ListChecks,
+  Newspaper,
   ScrollText,
   Server,
   Settings,
@@ -27,6 +28,7 @@ const primaryNav: {
   { label: "Servicios", href: "/servicios", icon: Server },
   { label: "Actions", href: "/actions", icon: ListChecks },
   { label: "Learning", href: "/learning", icon: GraduationCap },
+  { label: "News", href: "/news", icon: Newspaper },
   { label: "Registros", href: "/registros", icon: ScrollText },
   {
     label: "Notificaciones",
