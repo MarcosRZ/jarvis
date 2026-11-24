@@ -66,8 +66,9 @@ If a download is interrupted, Whisper can fail with `Unable to open file 'model.
 ### Language model
 
 - `LLM_MODEL`: GGUF file in `server/models/llm`. The downloader knows only the default file; put another file there yourself.
-- `LLM_CTX_SIZE`: keep at least `4096` for the command prompt and the state snapshot.
+- `LLM_CTX_SIZE`: default `8192`. A voice-client prompt carries the Home Assistant context and is about 2000 tokens; the shared KV cache needs room for two overlapping prompts. Below `8192`, llama.cpp may purge slots and log `failed to find free space in the KV cache`.
 - `LLM_THREADS`: CPU threads for the model.
+- `--parallel 1`: the server runs one slot because the voice client is sequential. More slots share the same KV pool and evict each other's cached prompts.
 - `VOICE_LLM_MODE=off` in the client disables the model entirely.
 
 ## Dashboard settings
