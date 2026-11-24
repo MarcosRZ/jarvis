@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { ModelSettingsPanel } from "@/components/dashboard/model-settings";
 import { PromptSettings } from "@/components/dashboard/prompt-settings";
 import {
   settingsSections,
@@ -181,6 +182,22 @@ export function SettingsPanel() {
     };
   }, []);
 
+  async function refreshValues() {
+    try {
+      const response = await fetch("/api/settings", { cache: "no-store" });
+      const data = (await response.json()) as {
+        values?: Record<string, string>;
+        error?: string;
+      };
+      if (!response.ok) {
+        throw new Error(data.error ?? `HTTP ${response.status}`);
+      }
+      setValues(data.values ?? {});
+    } catch {
+      // A failed refresh keeps the values already shown.
+    }
+  }
+
   function updateValue(key: string, value: string) {
     setValues((current) => {
       const next = { ...current };
@@ -301,17 +318,21 @@ export function SettingsPanel() {
                 <p className="mb-4 text-xs text-muted-foreground">
                   {section.description}
                 </p>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {section.fields.map((field) => (
-                    <SettingInput
-                      key={field.key}
-                      field={field}
-                      value={values[field.key] ?? ""}
-                      onChange={(value) => updateValue(field.key, value)}
-                      onReset={() => updateValue(field.key, "")}
-                    />
-                  ))}
-                </div>
+                {section.id === "model" ? (
+                  <ModelSettingsPanel onSaved={() => void refreshValues()} />
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {section.fields.map((field) => (
+                      <SettingInput
+                        key={field.key}
+                        field={field}
+                        value={values[field.key] ?? ""}
+                        onChange={(value) => updateValue(field.key, value)}
+                        onReset={() => updateValue(field.key, "")}
+                      />
+                    ))}
+                  </div>
+                )}
               </TabsContent>
             ))}
           </Tabs>

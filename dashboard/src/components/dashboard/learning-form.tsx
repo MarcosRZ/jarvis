@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/dashboard/page-header";
 import {
   normalizeLearningText,
@@ -26,7 +27,7 @@ import {
 } from "@/lib/learning";
 import { formatRelativeTime } from "@/lib/live-data";
 
-type TargetType = "device" | "action";
+type TargetType = "device" | "action" | "template" | "reply" | "pending";
 type Mode = "create" | "edit" | "copy";
 
 type FormValues = {
@@ -34,6 +35,8 @@ type FormValues = {
   target: TargetType;
   device: string;
   action: string;
+  template: string;
+  reply: string;
   kind: "turn-on" | "turn-off";
   name: string;
   score: string;
@@ -51,6 +54,8 @@ const emptyValues: FormValues = {
   target: "device",
   device: "",
   action: "",
+  template: "",
+  reply: "",
   kind: "turn-on",
   name: "",
   score: "1",
@@ -59,11 +64,22 @@ const emptyValues: FormValues = {
 };
 
 function valuesFromEntry(entry: LearningEntry): FormValues {
+  const target: TargetType = entry.pending
+    ? "pending"
+    : entry.action
+      ? "action"
+      : entry.template
+        ? "template"
+        : entry.reply
+          ? "reply"
+          : "device";
   return {
     text: entry.text,
-    target: entry.action ? "action" : "device",
+    target,
     device: entry.device ?? "",
     action: entry.action ?? "",
+    template: entry.template ?? "",
+    reply: entry.reply ?? "",
     kind: entry.kind === "turn-off" ? "turn-off" : "turn-on",
     name: entry.name ?? "",
     score: String(entry.score),
@@ -169,6 +185,18 @@ export function LearningForm() {
     if (values.target === "action" && values.action.trim() === "") {
       return "Action ID is required.";
     }
+    if (values.target === "template" && values.template.trim() === "") {
+      return "A template is required.";
+    }
+    if (values.target === "template" && values.template.trim().length > 400) {
+      return "The template must be at most 400 characters.";
+    }
+    if (values.target === "reply" && values.reply.trim() === "") {
+      return "A fixed reply is required.";
+    }
+    if (values.target === "reply" && values.reply.trim().length > 1000) {
+      return "The reply must be at most 1000 characters.";
+    }
     if (values.score.trim() === "") {
       return "Score is required.";
     }
@@ -211,8 +239,14 @@ export function LearningForm() {
     if (values.target === "device") {
       entry.device = values.device.trim();
       entry.kind = values.kind;
-    } else {
+    } else if (values.target === "action") {
       entry.action = values.action.trim();
+    } else if (values.target === "template") {
+      entry.template = values.template.trim();
+    } else if (values.target === "reply") {
+      entry.reply = values.reply.trim();
+    } else {
+      entry.pending = true;
     }
 
     try {
@@ -223,8 +257,9 @@ export function LearningForm() {
           : {}),
         entry,
       });
+      // The Learning page fetches its own data on mount. Calling refresh here
+      // races the push and can leave this form mounted with the saving spinner.
       router.push("/learning");
-      router.refresh();
     } catch (saveFailure) {
       setStatus({
         kind: "error",
@@ -244,7 +279,6 @@ export function LearningForm() {
     try {
       await queueLearningOperation({ kind: "delete", texts: [originalText] });
       router.push("/learning");
-      router.refresh();
     } catch (deleteFailure) {
       setStatus({
         kind: "error",
@@ -267,7 +301,7 @@ export function LearningForm() {
       ? "Change the sentence, its target or its feedback counters. Saving replaces the stored association."
       : mode === "copy"
         ? "Every field starts with the values of the original. Change the sentence before saving to create a separate association."
-        : "Create a sentence-to-action association without waiting for the assistant to infer it.";
+        : "Create a sentence-to-action association, a data template or a fixed reply without waiting for the assistant to infer it.";
   const busy = status.kind === "saving" || status.kind === "deleting";
 
   return (
@@ -393,6 +427,36 @@ export function LearningForm() {
                   >
                     Catalog action
                   </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={values.target === "template" ? "default" : "outline"}
+                    onClick={() => update("target", "template")}
+                    aria-pressed={values.target === "template"}
+                    disabled={busy}
+                  >
+                    Data template
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={values.target === "reply" ? "default" : "outline"}
+                    onClick={() => update("target", "reply")}
+                    aria-pressed={values.target === "reply"}
+                    disabled={busy}
+                  >
+                    Fixed reply
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={values.target === "pending" ? "default" : "outline"}
+                    onClick={() => update("target", "pending")}
+                    aria-pressed={values.target === "pending"}
+                    disabled={busy}
+                  >
+                    Pending
+                  </Button>
                 </div>
               </div>
 
@@ -440,7 +504,7 @@ export function LearningForm() {
                     </FieldHint>
                   </div>
                 </div>
-              ) : (
+              ) : values.target === "action" ? (
                 <div className="space-y-1.5">
                   <label htmlFor="action" className="text-sm font-medium">
                     Action ID
@@ -461,6 +525,58 @@ export function LearningForm() {
                     A generated catalog action ID from the Actions page, for
                     example <code className="font-mono">scene.cine.turn_on</code>.
                   </FieldHint>
+                </div>
+              ) : values.target === "template" ? (
+                <div className="space-y-1.5">
+                  <label htmlFor="template" className="text-sm font-medium">
+                    Template
+                  </label>
+                  <Textarea
+                    id="template"
+                    value={values.template}
+                    onChange={(event) => update("template", event.target.value)}
+                    placeholder="Hay {weather.aemet.temperature} grados."
+                    maxLength={400}
+                    rows={3}
+                    spellCheck={false}
+                    className="font-mono text-xs"
+                    disabled={busy}
+                    required
+                  />
+                  <FieldHint>
+                    Filled from the exposed entities on every use. Valid
+                    placeholders include{" "}
+                    <code className="font-mono">{"{weather.aemet.temperature}"}</code>,{" "}
+                    <code className="font-mono">{"{weather.aemet.condition}"}</code> and{" "}
+                    <code className="font-mono">{"{light.lounge.state}"}</code>. The
+                    client validates it when it applies the entry.
+                  </FieldHint>
+                </div>
+              ) : values.target === "reply" ? (
+                <div className="space-y-1.5">
+                  <label htmlFor="reply" className="text-sm font-medium">
+                    Fixed reply
+                  </label>
+                  <Textarea
+                    id="reply"
+                    value={values.reply}
+                    onChange={(event) => update("reply", event.target.value)}
+                    placeholder="El caballo blanco de Santiago es blanco."
+                    maxLength={1000}
+                    rows={3}
+                    disabled={busy}
+                    required
+                  />
+                  <FieldHint>
+                    Spoken exactly as written for a question that has no data
+                    source.
+                  </FieldHint>
+                </div>
+              ) : (
+                <div className="border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-400">
+                  A pending entry is stored with no target. The assistant says it
+                  is pending and never acts on it until you choose a catalog
+                  action, a template or a fixed reply here.
                 </div>
               )}
 

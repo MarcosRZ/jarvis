@@ -6,6 +6,9 @@ export type LearningEntry = {
   name?: string;
   kind?: string;
   action?: string;
+  template?: string;
+  reply?: string;
+  pending?: boolean;
   score: number;
   successes: number;
   failures: number;
@@ -78,7 +81,22 @@ export function learningStatus(entry: LearningEntry): LearningStatus {
 }
 
 export function targetID(entry: LearningEntry): string {
-  return entry.action ?? entry.device ?? "unknown target";
+  if (entry.pending) {
+    return "pending target";
+  }
+  if (entry.action) {
+    return entry.action;
+  }
+  if (entry.device) {
+    return entry.device;
+  }
+  if (entry.template) {
+    return `template: ${entry.template}`;
+  }
+  if (entry.reply) {
+    return `reply: ${entry.reply}`;
+  }
+  return "unknown target";
 }
 
 export async function queueLearningOperation(

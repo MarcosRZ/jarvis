@@ -116,8 +116,30 @@ export function parseEntry(
   );
   const name = optionalString(value.name, `${where}.name`, maxNameLength);
   const kind = optionalString(value.kind, `${where}.kind`, maxKindLength);
-  if ((device === undefined) === (action === undefined)) {
-    throw new Error(`${where} must name exactly one of device or action`);
+  const template = optionalString(value.template, `${where}.template`, 400);
+  const reply = optionalString(value.reply, `${where}.reply`, 1000);
+  if (value.pending !== undefined && typeof value.pending !== "boolean") {
+    throw new Error(`${where}.pending must be a boolean`);
+  }
+  const pending = value.pending === true;
+  if (pending) {
+    if (
+      device !== undefined ||
+      action !== undefined ||
+      template !== undefined ||
+      reply !== undefined
+    ) {
+      throw new Error(`${where} cannot be pending and name a target`);
+    }
+  } else {
+    const targets = [device, action, template, reply].filter(
+      (target) => target !== undefined,
+    );
+    if (targets.length !== 1) {
+      throw new Error(
+        `${where} must name exactly one of device, action, template or reply`,
+      );
+    }
   }
   if (device !== undefined && kind === undefined) {
     throw new Error(`${where}.kind is required for a device`);
@@ -153,6 +175,15 @@ export function parseEntry(
   }
   if (action !== undefined) {
     entry.action = action;
+  }
+  if (template !== undefined) {
+    entry.template = template;
+  }
+  if (reply !== undefined) {
+    entry.reply = reply;
+  }
+  if (pending) {
+    entry.pending = true;
   }
   return entry;
 }

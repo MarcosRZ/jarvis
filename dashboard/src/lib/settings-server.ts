@@ -127,7 +127,40 @@ function filterValues(
 export function clientValues(
   values: Record<string, string>,
 ): Record<string, string> {
+  // The client needs the model key to call a remote endpoint. The browser UI
+  // never receives it: publicValues drops every password field.
   return filterValues(values, clientSettingKeys());
+}
+
+export function publicValues(
+  values: Record<string, string>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (settingField(key)?.type === "password") {
+      continue;
+    }
+    result[key] = value;
+  }
+  return result;
+}
+
+// keepPasswordValues copies the stored secret when a generic save does not
+// carry it, so saving an unrelated field never erases the API key.
+export function keepPasswordValues(
+  incoming: Record<string, string>,
+  existing: Record<string, string>,
+): Record<string, string> {
+  const values = { ...incoming };
+  for (const key of Object.keys(existing)) {
+    if (values[key] !== undefined) {
+      continue;
+    }
+    if (settingField(key)?.type === "password") {
+      values[key] = existing[key];
+    }
+  }
+  return values;
 }
 
 export function composeScript(values: Record<string, string>): string {
