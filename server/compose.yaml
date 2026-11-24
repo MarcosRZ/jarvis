@@ -228,18 +228,54 @@ services:
       retries: 3
       start_period: 10s
 
+  news:
+    build:
+      # The news service is its own module, so the context is the repository
+      # root and the Dockerfile copies only news/.
+      context: ..
+      dockerfile: news/Dockerfile
+    container_name: m4nhattan-news
+    environment:
+      NEWS_LISTEN_ADDR: ":8091"
+      NEWS_CONFIG_FILE: /data/news.json
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${NEWS_PORT:-8091}:8091"
+    volumes:
+      # Configuration only: the items live in memory and are never persisted.
+      - news-config:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "/news", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   dashboard:
     build:
       context: ../dashboard
     container_name: m4nhattan-dashboard
     environment:
       COLLECTOR_URL: http://collector:8090
+      NEWS_URL: http://news:8091
+    extra_hosts:
+      # The model probe accepts the same 127.0.0.1 URL as the host client.
+      - "host.docker.internal:host-gateway"
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${DASHBOARD_PORT:-3005}:3000"
     volumes:
       - dashboard-data:/data
     depends_on:
       - collector
+      - news
     restart: unless-stopped
     logging: *default-logging
     healthcheck:
@@ -251,3 +287,4 @@ services:
 
 volumes:
   dashboard-data:
+  news-config:
