@@ -39,11 +39,14 @@ const (
 	EnvHAToken          = "VOICE_HA_TOKEN"
 	EnvHAAgent          = "VOICE_HA_AGENT"
 	EnvLLMURL           = "VOICE_LLM_URL"
+	EnvLLMModel         = "VOICE_LLM_MODEL"
+	EnvLLMAPIKey        = "VOICE_LLM_API_KEY"
 	EnvLLMMode          = "VOICE_LLM_MODE"
 	EnvLLMSafety        = "VOICE_LLM_SAFETY"
 	EnvLLMOrder         = "VOICE_LLM_ORDER"
 	EnvLLMTimeout       = "VOICE_LLM_TIMEOUT"
 	EnvPromptURL        = "VOICE_PROMPT_URL"
+	EnvNewsURL          = "VOICE_NEWS_URL"
 	EnvRoom             = "VOICE_ROOM"
 	EnvLearningFile     = "VOICE_LEARNING_FILE"
 	EnvLearningURL      = "VOICE_LEARNING_URL"
@@ -73,11 +76,13 @@ const (
 	flagHAURL              = "ha-url"
 	flagHAAgent            = "ha-agent"
 	flagLLMURL             = "llm-url"
+	flagLLMModel           = "llm-model"
 	flagLLMMode            = "llm-mode"
 	flagLLMSafety          = "llm-safety"
 	flagLLMOrder           = "llm-order"
 	flagLLMTimeout         = "llm-timeout"
 	flagPromptURL          = "prompt-url"
+	flagNewsURL            = "news-url"
 	flagRoom               = "room"
 	flagLearningFile       = "learning-file"
 	flagLearningURL        = "learning-url"
@@ -103,11 +108,13 @@ const (
 	defaultTTSVoice           = "es_ES-sharvard-medium"
 	defaultTTSSpeaker         = "F"
 	defaultLLMURL             = "http://127.0.0.1:8080"
+	defaultLLMModel           = "local"
 	defaultLLMMode            = commands.InterpretFallback
 	defaultLLMSafety          = commands.ActionGuard
 	defaultLLMOrder           = commands.FallbackHAFirst
 	defaultLLMTimeout         = 30 * time.Second
 	defaultPromptURL          = "http://127.0.0.1:3005/api/settings/prompt"
+	defaultNewsURL            = "http://127.0.0.1:8091"
 	defaultLearningFile       = "client/data/learning.json"
 	defaultLearningURL        = "http://127.0.0.1:3005/api/learning"
 	defaultActionsFile        = "client/data/actions.json"
@@ -148,7 +155,12 @@ type Config struct {
 	// default agent.
 	HAAgent string
 	// LLMURL is empty when no language-model interpreter is used.
-	LLMURL     string
+	LLMURL string
+	// LLMModel is the model name of the endpoint. Empty uses "local".
+	LLMModel string
+	// LLMAPIKey is a write-only bearer token for a remote endpoint. Empty for
+	// a local server.
+	LLMAPIKey  string
 	LLMMode    commands.InterpretMode
 	LLMSafety  commands.ActionSafety
 	LLMOrder   commands.FallbackOrder
@@ -156,6 +168,8 @@ type Config struct {
 	// PromptURL serves the configurable question prompt. Empty uses the built-in
 	// prompt.
 	PromptURL string
+	// NewsURL is the news service. Empty turns news questions off.
+	NewsURL string
 	// Room is where the assistant is, so that "aquí" has a meaning. Empty when
 	// unknown.
 	Room string
@@ -208,11 +222,14 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		HAToken:            getenv(EnvHAToken),
 		HAAgent:            strings.TrimSpace(getenv(EnvHAAgent)),
 		LLMURL:             envOr(getenv, EnvLLMURL, defaultLLMURL),
+		LLMModel:           envOr(getenv, EnvLLMModel, defaultLLMModel),
+		LLMAPIKey:          envOr(getenv, EnvLLMAPIKey, ""),
 		LLMMode:            commands.InterpretMode(envOr(getenv, EnvLLMMode, string(defaultLLMMode))),
 		LLMSafety:          commands.ActionSafety(envOr(getenv, EnvLLMSafety, string(defaultLLMSafety))),
 		LLMOrder:           commands.FallbackOrder(envOr(getenv, EnvLLMOrder, string(defaultLLMOrder))),
 		LLMTimeout:         defaultLLMTimeout,
 		PromptURL:          envOr(getenv, EnvPromptURL, defaultPromptURL),
+		NewsURL:            envOr(getenv, EnvNewsURL, defaultNewsURL),
 		Room:               strings.TrimSpace(getenv(EnvRoom)),
 		LearningFile:       envOr(getenv, EnvLearningFile, defaultLearningFile),
 		LearningURL:        envOr(getenv, EnvLearningURL, defaultLearningURL),
@@ -287,7 +304,8 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.StringVar(&cfg.TTSSpeaker, flagTTSSpeaker, cfg.TTSSpeaker, usage("speaker of a Piper voice with several speakers, empty for its default", EnvTTSSpeaker))
 	fs.StringVar(&cfg.HAURL, flagHAURL, cfg.HAURL, usage("Home Assistant URL, for example http://127.0.0.1:8123; empty for no device control; the token is "+EnvHAToken, EnvHAURL))
 	fs.StringVar(&cfg.HAAgent, flagHAAgent, cfg.HAAgent, usage("Home Assistant conversation agent for other devices and questions, for example conversation.ollama; empty for the default agent", EnvHAAgent))
-	fs.StringVar(&cfg.LLMURL, flagLLMURL, cfg.LLMURL, usage("llama.cpp URL, for example http://127.0.0.1:8080; empty for no language model", EnvLLMURL))
+	fs.StringVar(&cfg.LLMURL, flagLLMURL, cfg.LLMURL, usage("OpenAI-compatible model URL, for example http://127.0.0.1:8080; empty for no language model", EnvLLMURL))
+	fs.StringVar(&cfg.LLMModel, flagLLMModel, cfg.LLMModel, usage("model name sent to the endpoint, for example local", EnvLLMModel))
 	llmMode := string(cfg.LLMMode)
 	fs.StringVar(&llmMode, flagLLMMode, llmMode, usage("off or fallback (unresolved sentences)", EnvLLMMode))
 	llmSafety := string(cfg.LLMSafety)
@@ -296,6 +314,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.StringVar(&llmOrder, flagLLMOrder, llmOrder, usage("ha-first (Home Assistant before the model) or model-first (model before Home Assistant)", EnvLLMOrder))
 	fs.DurationVar(&cfg.LLMTimeout, flagLLMTimeout, cfg.LLMTimeout, usage("maximum time for one language-model answer", EnvLLMTimeout))
 	fs.StringVar(&cfg.PromptURL, flagPromptURL, cfg.PromptURL, usage("URL of the configurable language-model prompt; empty for the built-in prompt", EnvPromptURL))
+	fs.StringVar(&cfg.NewsURL, flagNewsURL, cfg.NewsURL, usage("news service URL, for example http://127.0.0.1:8091; empty to turn news off", EnvNewsURL))
 	fs.StringVar(&cfg.Room, flagRoom, cfg.Room, usage(`room where the assistant is, so that "aquí" means that room, for example Salón; empty when unknown`, EnvRoom))
 	fs.StringVar(&cfg.LearningFile, flagLearningFile, cfg.LearningFile, usage("JSON file for learned sentences and their feedback; empty to turn learning off", EnvLearningFile))
 	fs.StringVar(&cfg.LearningURL, flagLearningURL, cfg.LearningURL, usage("URL where the learning snapshot is published for the dashboard Learning page; off to disable", EnvLearningURL))
@@ -314,6 +333,9 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		errs = append(errs, fmt.Errorf("unexpected argument %q", fs.Arg(0)))
 	}
 	cfg.Room = strings.TrimSpace(cfg.Room)
+	cfg.LLMModel = strings.TrimSpace(cfg.LLMModel)
+	cfg.LLMAPIKey = strings.TrimSpace(cfg.LLMAPIKey)
+	cfg.NewsURL = strings.TrimSpace(cfg.NewsURL)
 	cfg.HAAgent = strings.TrimSpace(cfg.HAAgent)
 	cfg.LearningFile = strings.TrimSpace(cfg.LearningFile)
 	cfg.LearningURL = strings.TrimSpace(cfg.LearningURL)
@@ -394,6 +416,11 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	if cfg.PromptURL != "" {
 		if u, err := url.Parse(cfg.PromptURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			errs = append(errs, fmt.Errorf("--%s (%s) %q: use http://host:port or https://host:port", flagPromptURL, EnvPromptURL, cfg.PromptURL))
+		}
+	}
+	if cfg.NewsURL != "" {
+		if u, err := url.Parse(cfg.NewsURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			errs = append(errs, fmt.Errorf("--%s (%s) %q: use http://host:port or https://host:port", flagNewsURL, EnvNewsURL, cfg.NewsURL))
 		}
 	}
 	if cfg.LearningURL != "" {

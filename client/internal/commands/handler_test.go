@@ -214,7 +214,7 @@ func TestHandleRefreshesDevicesFromSource(t *testing.T) {
 	source.devices = []Device{kitchen, lounge}
 	interp.commands = []Command{{Kind: KindTurnOff, Device: lounge}}
 	clock = clock.Add(10 * time.Second)
-	if got := h.Handle(ctx, "apaga la luz del salón"); got != ReplyUnknown {
+	if got := h.Handle(ctx, "apaga la luz del salón"); got != "Aún no sé procesar la orden apaga la luz del salón." {
 		t.Errorf("within the refresh time the new device must not be known yet: %q", got)
 	}
 	clock = clock.Add(30 * time.Second)
@@ -357,8 +357,8 @@ func TestInvalidAndUnknownCommandsNeverReachDevices(t *testing.T) {
 	if len(devices.calls) != 0 {
 		t.Fatalf("device calls %v for invalid or unknown commands", devices.calls)
 	}
-	if got := h.Handle(context.Background(), "Enciende el horno."); got != ReplyUnknown {
-		t.Errorf("unknown device reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "Enciende el horno."); got != "Aún no sé procesar la orden Enciende el horno." {
+		t.Errorf("unknown device reply %q", got)
 	}
 }
 
@@ -532,11 +532,11 @@ func TestHandleKeepsTheLocalReplyWhenConversationDoesNotUnderstand(t *testing.T)
 	conversation := &fakeConversation{}
 	h.UseConversation(conversation)
 
-	if got := h.Handle(ctx, "abre la persiana"); got != ReplyUnknown {
-		t.Errorf("unknown reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(ctx, "abre la persiana"); got != "Aún no sé procesar la orden abre la persiana." {
+		t.Errorf("unknown reply %q", got)
 	}
-	if got := h.Handle(ctx, "enciende el horno"); got != ReplyUnknown {
-		t.Errorf("device reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(ctx, "enciende el horno"); got != "Aún no sé procesar la orden enciende el horno." {
+		t.Errorf("device reply %q", got)
 	}
 	if len(conversation.texts) != 2 {
 		t.Errorf("conversation texts %v", conversation.texts)
@@ -547,8 +547,8 @@ func TestHandleFallsBackWhenConversationFails(t *testing.T) {
 	h := newHandler(t, nil)
 	h.UseConversation(&fakeConversation{err: errors.New("Home Assistant down")})
 
-	if got := h.Handle(context.Background(), "abre la persiana"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "abre la persiana"); got != "Aún no sé procesar la orden abre la persiana." {
+		t.Errorf("reply %q", got)
 	}
 }
 
@@ -695,8 +695,8 @@ func TestHandleRejectsParaphrasedEcho(t *testing.T) {
 	interp := &fakeInterpreter{reply: "¿Puedo pasar yo por correos?"}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "¿Puedo pasar yo por correos entonces?"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "¿Puedo pasar yo por correos entonces?"); got != ReplyModelDown {
+		t.Errorf("reply %q, want %q", got, ReplyModelDown)
 	}
 }
 
@@ -706,21 +706,21 @@ func TestHandleRejectsEmptyOrEchoedReply(t *testing.T) {
 		h := newHandler(t, devices)
 		h.UseContext(&fakeContext{text: "weather.forecast_casa: lluvioso"})
 		h.UseInterpreter(&fakeInterpreter{reply: reply}, InterpretFallback)
-		if got := h.Handle(context.Background(), "¿Va a llover?"); got != ReplyUnknown {
-			t.Errorf("reply %q: got %q, want %q", reply, got, ReplyUnknown)
+		if got := h.Handle(context.Background(), "¿Va a llover?"); got != ReplyDataMissing {
+			t.Errorf("reply %q: got %q, want %q", reply, got, ReplyDataMissing)
 		}
 	}
 }
 
-func TestHandleDoesNotSpeakReplyForDeviceQuestion(t *testing.T) {
+func TestHandleAnswersADeviceQuestion(t *testing.T) {
 	devices := &fakeDevices{}
 	h := newHandler(t, devices)
 	h.UseContext(&fakeContext{text: "light.lounge: off"})
 	interp := &fakeInterpreter{reply: "Sí."}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "¿Enciendes la luz del salón?"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "¿Está encendida la luz del salón?"); got != "Sí." {
+		t.Errorf("reply %q, want the spoken answer", got)
 	}
 	if len(devices.calls) != 0 {
 		t.Errorf("device calls %v, want none", devices.calls)
@@ -802,7 +802,7 @@ func TestHandlePenalizesAndReplacesTheLearnedAction(t *testing.T) {
 		t.Fatalf("entry %+v, %v", e, ok)
 	}
 
-	if got := h.Handle(ctx, "hay poca claridad"); got != ReplyUnknown {
+	if got := h.Handle(ctx, "hay poca claridad"); got != "Aún no sé procesar la orden hay poca claridad." {
 		t.Fatalf("reply %q, want the punished action to be dropped", got)
 	}
 	if len(interp.texts) != 2 {
@@ -846,7 +846,7 @@ func TestHandlePenalizesTheDeterministicState(t *testing.T) {
 	if got := h.Handle(ctx, "mal"); got != ReplyPenalized {
 		t.Fatalf("reply %q", got)
 	}
-	if got := h.Handle(ctx, "no veo nada"); got != ReplyUnknown {
+	if got := h.Handle(ctx, "no veo nada"); got != "Aún no sé procesar la orden no veo nada." {
 		t.Fatalf("reply %q, want the punished action to be dropped", got)
 	}
 	if want := []string{"light.lounge=on"}; !slices.Equal(devices.calls, want) {
@@ -909,8 +909,8 @@ func TestHandleRunsCommonLightStatesWithoutTheModel(t *testing.T) {
 func TestCommonLightStateDoesNotGuessBetweenRooms(t *testing.T) {
 	devices := &fakeDevices{}
 	h := newHandler(t, devices)
-	if got := h.Handle(context.Background(), "no veo nada"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "no veo nada"); got != "Aún no sé procesar la orden no veo nada." {
+		t.Errorf("reply %q", got)
 	}
 	if len(devices.calls) != 0 {
 		t.Errorf("device calls %v", devices.calls)
@@ -980,8 +980,8 @@ func TestHandleKeepsUnknownWhenInferenceFindsNothing(t *testing.T) {
 	interp := &fakeInterpreter{}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "enciende el ventilador"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "enciende el ventilador"); got != "Aún no sé procesar la orden enciende el ventilador." {
+		t.Errorf("reply %q", got)
 	}
 	if len(interp.texts) != 1 {
 		t.Errorf("interpreter texts %v, want one attempt", interp.texts)
@@ -999,8 +999,8 @@ func TestHandleInfersOnlyWithDevices(t *testing.T) {
 	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOn, Device: lounge}}}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "hay mucha luz"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "hay mucha luz"); got != "No tengo ninguna luz configurada." {
+		t.Errorf("reply %q", got)
 	}
 	if len(interp.texts) != 0 {
 		t.Errorf("interpreter called without devices: %v", interp.texts)
@@ -1110,11 +1110,11 @@ func TestHandleGuardRejectsAQuestionAboutAState(t *testing.T) {
 	if len(devices.calls) != 0 {
 		t.Errorf("device calls %v", devices.calls)
 	}
-	if got := h.Handle(context.Background(), "hace frío"); got != ReplyDone {
-		t.Errorf("reply %q, want %q", got, ReplyDone)
+	if got := h.Handle(context.Background(), "hace frío"); got != "No tengo ningún aparato de calefacción configurado." {
+		t.Errorf("reply %q, want the no-heater phrase", got)
 	}
-	if !slices.Equal(devices.calls, []string{"switch.air=on"}) {
-		t.Errorf("device calls %v", devices.calls)
+	if len(devices.calls) != 0 {
+		t.Errorf("device calls %v, want none", devices.calls)
 	}
 }
 
@@ -1140,7 +1140,7 @@ func TestHandleActionSafetyStatesRejectsACommand(t *testing.T) {
 	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOn, Device: lounge}}}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "enciende el ventilador"); got != ReplyUnknown {
+	if got := h.Handle(context.Background(), "enciende el ventilador"); got != "Aún no sé procesar la orden enciende el ventilador." {
 		t.Errorf("reply %q, want a rejection", got)
 	}
 	if len(devices.calls) != 0 {
@@ -1197,8 +1197,8 @@ func TestHandleGuardRejectsTheWrongNamedDevice(t *testing.T) {
 	interp := &fakeInterpreter{commands: []Command{{Kind: KindTurnOn, Device: kitchen}}}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "quiero apagar la luz del salón"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "quiero apagar la luz del salón"); got != "Aún no sé procesar la orden quiero apagar la luz del salón." {
+		t.Errorf("reply %q", got)
 	}
 	if len(devices.calls) != 0 {
 		t.Errorf("device calls %v for the wrong device", devices.calls)
@@ -1216,8 +1216,8 @@ func TestHandleDropsInterpretedDeviceOutsideAllowlist(t *testing.T) {
 	}}}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "enciende el pasillo"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "enciende el pasillo"); got != "Aún no sé procesar la orden enciende el pasillo." {
+		t.Errorf("reply %q", got)
 	}
 }
 
@@ -1226,8 +1226,8 @@ func TestHandleDropsFixedCommandFromInterpreter(t *testing.T) {
 	interp := &fakeInterpreter{commands: []Command{{Kind: KindTime}}}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "quiero apagar la luz del salón"); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "quiero apagar la luz del salón"); got != "Aún no sé procesar la orden quiero apagar la luz del salón." {
+		t.Errorf("reply %q", got)
 	}
 	if len(interp.texts) != 1 {
 		t.Errorf("interpreter texts %v", interp.texts)
@@ -1239,8 +1239,8 @@ func TestHandleKeepsDeterministicCommandWhenInterpreterFails(t *testing.T) {
 	interp := &fakeInterpreter{err: errors.New("language model down")}
 	h.UseInterpreter(interp, InterpretFallback)
 
-	if got := h.Handle(context.Background(), "Quiero apagar la luz del salón."); got != ReplyUnknown {
-		t.Errorf("reply %q, want %q", got, ReplyUnknown)
+	if got := h.Handle(context.Background(), "Quiero apagar la luz del salón."); got != "Aún no sé procesar la orden Quiero apagar la luz del salón." {
+		t.Errorf("reply %q", got)
 	}
 	if len(interp.texts) != 1 {
 		t.Errorf("interpreter texts %v", interp.texts)

@@ -135,6 +135,12 @@ func (c *Client) Converse(ctx context.Context, text string) (string, bool, error
 }
 
 func (c *Client) exposedEntities(ctx context.Context) (map[string]map[string]bool, error) {
+	exposureCache.Lock()
+	cached, ok := exposureCache.byClient[c]
+	exposureCache.Unlock()
+	if ok && time.Since(cached.at) < exposureTTL {
+		return cached.values, nil
+	}
 	s, err := Connect(ctx, c.cfg)
 	if err != nil {
 		return nil, err
@@ -146,6 +152,9 @@ func (c *Client) exposedEntities(ctx context.Context) (map[string]map[string]boo
 	if err := s.Call(ctx, map[string]any{"type": "homeassistant/expose_entity/list"}, &result); err != nil {
 		return nil, err
 	}
+	exposureCache.Lock()
+	exposureCache.byClient[c] = cachedExposure{at: time.Now(), values: result.ExposedEntities}
+	exposureCache.Unlock()
 	return result.ExposedEntities, nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"unicode"
 
 	"jarvis/actions"
+	"jarvis/client/internal/data"
 	"jarvis/client/internal/learning"
 )
 
@@ -24,6 +25,7 @@ type Kind string
 const (
 	KindUnknown Kind = "unknown"
 	KindTime    Kind = "time"
+	KindDate    Kind = "date"
 	KindRepeat  Kind = "repeat"
 	KindCancel  Kind = "cancel"
 	KindHelp    Kind = "help"
@@ -33,16 +35,35 @@ const (
 	KindAction Kind = "action"
 	// KindPenalty is "mal": the last inferred action was wrong.
 	KindPenalty Kind = "penalty"
+	// KindData is an answer rendered from a taught data template.
+	KindData Kind = "data"
+	// KindReply is a fixed learned answer.
+	KindReply Kind = "reply"
+	// KindPending is a taught sentence whose target is not known yet.
+	KindPending Kind = "pending"
 )
 
 const (
 	ReplyUnknown          = "Todavía no sé hacer eso."
 	ReplyCancelled        = "Vale, cancelado."
+	ReplyOkay             = "okay"
 	ReplyNothingToRepeat  = "Todavía no has dicho nada."
 	ReplyNoDevices        = "Todavía no puedo controlar dispositivos."
 	ReplyDone             = "Hecho."
 	ReplyPenalized        = "Lo siento. Lo tendré en cuenta."
 	ReplyNothingToCorrect = "No hay nada que corregir."
+	ReplyConfirmed        = "Entendido."
+	ReplyDataMissing      = "No tengo ese dato."
+	ReplyModelDown        = "No puedo responder ahora."
+	ReplyNewsDown         = "No tengo noticias ahora."
+	ReplyPending          = "No he podido deducir la acción. La dejo pendiente para ajustar en Manhattan."
+	ReplyStoreFailed      = "No he podido guardarlo."
+	ReplyTeachSentence    = "Dime la frase."
+	ReplyAskForOrder      = "¿Qué debo hacer?"
+	ReplyAskForAnswer     = "¿Qué debo responder?"
+	ReplyRetryExplanation = "Explícamelo de otra forma."
+	ReplyTellOrder        = "Dime la orden."
+	ReplyTellQuestion     = "Dime la pregunta."
 )
 
 var ErrBadDevice = errors.New("invalid device in the allowlist")
@@ -67,6 +88,15 @@ var phrases = map[string]Kind{
 	"que ahora es":           KindTime,
 	"que hora es ya":         KindTime,
 	"sabes que hora es":      KindTime,
+	"que dia es hoy":         KindDate,
+	"que dia es":             KindDate,
+	"que dia estamos":        KindDate,
+	"a que dia estamos":      KindDate,
+	"dime la fecha":          KindDate,
+	"dime que dia es hoy":    KindDate,
+	"que fecha es hoy":       KindDate,
+	"que fecha es":           KindDate,
+	"fecha de hoy":           KindDate,
 	"repite lo que he dicho": KindRepeat,
 	"repite":                 KindRepeat,
 	"repitelo":               KindRepeat,
@@ -108,8 +138,14 @@ type Command struct {
 	Device Device
 	// Action is set when Kind is KindAction.
 	Action actions.Action
+	// Reply is the spoken answer of KindReply and the rendered answer of
+	// KindData.
+	Reply string
+	// Template is the stored template of a KindData command. It is used to
+	// count a success on the entry that produced the answer.
+	Template string
 	// Source is where a command came from: "direct", "catalog", "reasoned",
-	// "state" or "learned". It is used for logging and learning.
+	// "state", "learned" or "data". It is used for logging and learning.
 	Source string
 	// Text is the normalized sentence that produced the command. It is only
 	// set by Handle, for learning and feedback.
@@ -236,6 +272,15 @@ type ActionInterpreter interface {
 	InterpretActions(ctx context.Context, text string, actions []actions.Action, homeContext string) (Interpretation, error)
 }
 
+// LearnedActionInterpreter is an ActionInterpreter that also receives the
+// active learned associations. It is optional so existing interpreters keep
+// working unchanged. The entries are read from the store on every call, so a
+// phrase learned later is visible without restarting the assistant.
+type LearnedActionInterpreter interface {
+	ActionInterpreter
+	InterpretActionsWithLearning(ctx context.Context, text string, actions []actions.Action, homeContext string, learned []learning.Entry) (Interpretation, error)
+}
+
 // Conversation forwards a sentence to Home Assistant, which can control any
 // entity exposed to it and answer questions about it. handled is false when the
 // agent did not understand the sentence, so the caller can use its own fallback.
@@ -277,6 +322,26 @@ type Handler struct {
 	room          string
 	learning      *learning.Store
 	lastAction    feedback
+
+	// dataProvider answers data questions from the exposed entities, and news
+	// reads the headlines. Both are optional.
+	dataProvider data.Provider
+	news         data.News
+	dataResolver data.Resolver
+
+	// lastFailed is the last sentence that ended in a failure phrase. "aprende"
+	// within failedWindow teaches it.
+	lastFailed   string
+	lastFailedAt time.Time
+	// modelFailed records that the interpreter failed, so the failure phrase
+	// can distinguish a missing datum from an unreachable model.
+	modelFailed bool
+	// lastData is the last data topic that was answered. A short "¿y mañana?"
+	// reuses it within dataFollowUp.
+	lastData   data.Kind
+	lastDataAt time.Time
+	// teaching is the state of the "aprende" dialogue.
+	teaching teachState
 
 	source    DeviceSource
 	every     time.Duration
@@ -438,7 +503,12 @@ func (h *Handler) UseActionSource(source ActionSource, every time.Duration, repo
 const feedbackWindow = 60 * time.Second
 
 // maxReplyRunes bounds a model reply that the assistant speaks.
-const maxReplyRunes = 600
+const (
+	maxReplyRunes = 600
+	// maxChatReplyRunes keeps a chat answer to two short sentences, as the
+	// behaviour contract asks.
+	maxChatReplyRunes = 400
+)
 
 // Devices returns the allowlist in use.
 func (h *Handler) Devices() []Device {
@@ -512,6 +582,19 @@ func spokenName(d Device) string {
 	return d.Name
 }
 
+// UseData sets the deterministic data layer: the exposed entities and the news
+// service. A nil provider leaves data questions to the fallback.
+func (h *Handler) UseData(provider data.Provider, news data.News) {
+	h.dataProvider, h.news = provider, news
+	h.dataResolver = data.Resolver{Now: h.now}
+}
+
+// FlowActive reports whether a conversational flow is open. The voice pipeline
+// keeps listening without a wake word while it is true.
+func (h *Handler) FlowActive() bool {
+	return h.teaching.step != teachIdle
+}
+
 // Handle parses text, optionally asks the interpreter, executes the commands
 // and returns the reply.
 func (h *Handler) Handle(ctx context.Context, text string) string {
@@ -525,6 +608,25 @@ func (h *Handler) Handle(ctx context.Context, text string) string {
 			h.reportAction(err)
 		}
 	}
+	h.modelFailed = false
+
+	norm := learningKey(text)
+	if norm == "cancelar" {
+		// The emergency word closes any conversational flow at once.
+		h.teaching = teachState{}
+		h.lastFailed = ""
+		if h.logger != nil {
+			h.logger.Info("cancel", "flow", "global")
+		}
+		return ReplyOkay
+	}
+	if h.teaching.step != teachIdle {
+		return h.teachingTurn(ctx, text)
+	}
+	if h.learning != nil && teachTrigger(text) {
+		return h.startTeaching(ctx)
+	}
+
 	commands := h.ParseAll(text)
 	if h.logger != nil {
 		for _, cmd := range commands {
@@ -533,39 +635,133 @@ func (h *Handler) Handle(ctx context.Context, text string) string {
 			}
 		}
 	}
-	var reply string
-	switch {
-	case unresolved(commands):
+	reply := ""
+	source := replyNone
+	if unresolved(commands) {
 		if cmd, blocked, ok := h.reasoned(ctx, text); ok {
 			commands = []Command{cmd}
+			source = commandSource(cmd)
 		} else if matched, ok := h.localCatalogAction(ctx, text, blocked); ok {
 			commands = matched
+		} else if answer, result := h.answerData(ctx, text); result != data.NoMatch {
+			if result == data.Answered {
+				reply, source = answer, replyData
+			} else {
+				reply = answer
+			}
+		} else if answer, ok := h.physicalAnswer(ctx, text); ok {
+			reply, source = answer, replyPhysical
 		} else if h.fallbackOrder == FallbackModelFirst {
 			if interpreted, ok := h.interpretReasoned(ctx, text, blocked); ok {
 				commands, reply = interpreted.Commands, interpreted.Reply
+				if reply != "" {
+					source = replyModel
+				}
 			} else if answer, ok := h.askConversation(ctx, text); ok {
-				reply = answer
+				reply, source = answer, replyConversation
 			}
 		} else {
 			if answer, ok := h.askConversation(ctx, text); ok {
-				reply = answer
+				reply, source = answer, replyConversation
 			} else if interpreted, ok := h.interpretReasoned(ctx, text, blocked); ok {
 				commands, reply = interpreted.Commands, interpreted.Reply
+				if reply != "" {
+					source = replyModel
+				}
 			}
 		}
 	}
-	// A learned entry is a sentence-to-one-action association, so a sentence
+	// A learned entry is a sentence-to-one-target association, so a sentence
 	// with several actions is not stored and "mal" has nothing to correct.
 	if len(commands) == 1 {
 		commands[0].Text = learningKey(text)
 	}
-	if reply == "" {
+	if reply == "" && !unresolved(commands) {
 		reply = h.executeAll(ctx, commands)
+	}
+	if reply == "" {
+		reply = h.failureReply(ctx, text)
+	} else if (source == replyModel || source == replyConversation) && data.Detect(text).IsData() {
+		// The first answer to a new data phrasing may need the model. It is
+		// stored as a template, never as frozen text.
+		h.rememberTemplate(ctx, text, reply)
+	}
+	if source == replyModel || source == replyConversation || source == replyData || source == replyPhysical {
+		h.recordAnswer(source, text)
+	}
+	// A fallback refusal is not an answer: keep the sentence teachable with
+	// "aprende", even though the refusal itself is spoken.
+	if (source == replyConversation || source == replyModel) && isRefusal(reply) {
+		h.lastFailed, h.lastFailedAt = strings.TrimSpace(text), h.now()
 	}
 	if !slices.ContainsFunc(commands, func(c Command) bool {
 		return c.Kind == KindRepeat || c.Kind == KindPenalty
 	}) {
 		h.previous = strings.TrimSpace(text)
+	}
+	return reply
+}
+
+type replySource int
+
+const (
+	replyNone replySource = iota
+	replyData
+	replyPhysical
+	replyModel
+	replyConversation
+	replyLearnedData
+	replyLearnedReply
+)
+
+func commandSource(cmd Command) replySource {
+	switch cmd.Kind {
+	case KindData:
+		return replyLearnedData
+	case KindReply:
+		return replyLearnedReply
+	}
+	return replyNone
+}
+
+// isRefusal reports whether a fallback answer says that it cannot help. The
+// Home Assistant agent answers many unsupported orders with such a sentence,
+// and the user must still be able to teach them.
+func isRefusal(reply string) bool {
+	norm := learningKey(reply)
+	for _, phrase := range []string{
+		"no puedo", "no he podido", "no se", "no lo se", "no te he entendido",
+		"no te entiendo", "no estoy seguro", "no tengo informacion",
+		"no dispongo", "lo siento", "perdona", "no soy capaz",
+	} {
+		if strings.Contains(" "+norm+" ", " "+phrase+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// failureReply is the phrase for a sentence that no layer could handle. It also
+// remembers the sentence for the "aprende" flow.
+func (h *Handler) failureReply(ctx context.Context, text string) string {
+	text = strings.TrimSpace(text)
+	h.lastFailed, h.lastFailedAt = text, h.now()
+	var reply string
+	switch {
+	case data.Detect(text).IsData():
+		reply = ReplyDataMissing
+		if h.modelFailed {
+			reply = ReplyModelDown
+		}
+	case looksLikeQuestion(text):
+		// A chat question has no data source; the model was the answer
+		// source and it did not produce a usable reply.
+		reply = ReplyModelDown
+	default:
+		reply = fmt.Sprintf("Aún no sé procesar la orden %s.", asClause(text))
+	}
+	if h.logger != nil {
+		h.logger.Info("failure", "reply", reply, "model_failed", h.modelFailed)
 	}
 	return reply
 }
@@ -579,12 +775,17 @@ func (h *Handler) reasoned(ctx context.Context, text string) (Command, *learning
 	if h.learning != nil {
 		if e, found := h.learning.Lookup(key); found {
 			if e.Score > 0 {
-				if cmd, ok := h.commandFromEntry(e); ok {
+				if cmd, ok := h.commandFromEntry(ctx, e); ok {
 					if h.logger != nil {
 						attrs := []any{"kind", cmd.Kind, "source", "learned", "score", e.Score}
-						if cmd.Kind == KindAction {
+						switch cmd.Kind {
+						case KindAction:
 							attrs = append(attrs, "action", cmd.Action.ID, "entity", cmd.Action.EntityID)
-						} else {
+						case KindData:
+							attrs = append(attrs, "template", e.Template)
+						case KindReply:
+							attrs = append(attrs, "reply", e.Reply)
+						default:
 							attrs = append(attrs, "device", cmd.Device.ID)
 						}
 						h.logger.Log(ctx, h.logLevel, "reasoned", attrs...)
@@ -611,7 +812,7 @@ func (h *Handler) reasoned(ctx context.Context, text string) (Command, *learning
 // model or Home Assistant. It runs after learned memory and before the
 // fallback order, so common commands stay fast and are learned.
 func (h *Handler) localCatalogAction(ctx context.Context, text string, blocked *learning.Entry) ([]Command, bool) {
-	if h.actionExec == nil || len(h.actionList) == 0 || LooksLikeQuestion(text) {
+	if h.actionExec == nil || len(h.actionList) == 0 {
 		return nil, false
 	}
 	matched, ok := matchCatalogActions(text, h.actionList)
@@ -649,7 +850,7 @@ func (h *Handler) interpretReasoned(ctx context.Context, text string, blocked *l
 	}
 	homeContext := h.homeContext(ctx)
 	interpreted, ok := Interpretation{}, false
-	if !LooksLikeQuestion(text) {
+	if !LooksLikeQuestion(text) || data.HasActionVerb(text) {
 		interpreted, ok = h.askActions(ctx, text, homeContext)
 	}
 	if !ok && len(devices) > 0 {
@@ -663,6 +864,7 @@ func (h *Handler) interpretReasoned(ctx context.Context, text string, blocked *l
 	if !ok {
 		return Interpretation{}, false
 	}
+	interpreted.Reply = limitReply(interpreted.Reply)
 	if len(interpreted.Commands) == 0 {
 		if !h.acceptsReply(text, interpreted.Reply) {
 			if h.logger != nil {
@@ -741,12 +943,50 @@ func (h *Handler) askConversation(ctx context.Context, text string) (string, boo
 	if h.logger != nil {
 		h.logger.Log(ctx, slog.LevelInfo, "conversation", "source", "homeassistant")
 	}
-	return reply, true
+	return limitReply(reply), true
+}
+
+// limitReply cuts a long chat answer at a sentence boundary within
+// maxChatReplyRunes, so a chatty model cannot read a paragraph aloud.
+func limitReply(reply string) string {
+	runes := []rune(strings.TrimSpace(reply))
+	if len(runes) <= maxChatReplyRunes {
+		return string(runes)
+	}
+	cut := string(runes[:maxChatReplyRunes])
+	if index := strings.LastIndexAny(cut, ".!?"); index >= 0 {
+		cut = cut[:index+1]
+	}
+	return strings.TrimSpace(cut)
 }
 
 // commandFromEntry turns a learned entry into a command, using the current
-// allowlist: a device that is no longer exposed is not used.
-func (h *Handler) commandFromEntry(e learning.Entry) (Command, bool) {
+// allowlist and snapshot: a device or template that no longer exists is not
+// used. A pending entry says that it is pending and never acts.
+func (h *Handler) commandFromEntry(ctx context.Context, e learning.Entry) (Command, bool) {
+	if e.Pending {
+		return Command{Kind: KindPending, Source: "learned", Text: e.Text}, true
+	}
+	if e.Template != "" {
+		if h.dataProvider == nil {
+			return Command{}, false
+		}
+		snapshot, err := h.dataProvider.DataSnapshot(ctx)
+		if err != nil {
+			return Command{}, false
+		}
+		text, err := data.Render(e.Template, snapshot)
+		if err != nil {
+			if h.logger != nil {
+				h.logger.Warn("data template", "template", e.Template, "error", err)
+			}
+			return Command{}, false
+		}
+		return Command{Kind: KindData, Reply: text, Template: e.Template, Source: "learned", Text: e.Text}, true
+	}
+	if e.Reply != "" {
+		return Command{Kind: KindReply, Reply: e.Reply, Source: "learned", Text: e.Text}, true
+	}
 	if e.Action != "" {
 		action, ok := h.actionsByID[e.Action]
 		if !ok || h.actionExec == nil {
@@ -800,8 +1040,13 @@ func (h *Handler) acceptsReasoned(text string, cmd Command) bool {
 	if h.actionSafety == ActionLiteral {
 		return true
 	}
-	if looksLikeQuestion(text) {
+	// An action verb wins over the question shape: "¿puedes apagar la tele?"
+	// is still an order. A question without one is an information request.
+	if looksLikeQuestion(text) && !data.HasActionVerb(text) {
 		return false
+	}
+	if cmd.Kind == KindAction && h.learnedActionAllows(text, cmd.Action) {
+		return true
 	}
 	if cmd.Kind == KindAction {
 		return h.acceptsAction(text, cmd.Action)
@@ -815,6 +1060,29 @@ func (h *Handler) acceptsReasoned(text string, cmd Command) bool {
 		return h.deviceForIntent(named, namedOK, cmd.Device, intent)
 	}
 	return namedOK && named.ID == cmd.Device.ID
+}
+
+// learnedActionAllows accepts an action chosen from a learned association when
+// the sentence shares a significant word with the learned phrase. It lets a
+// variant such as "macro uno" use the action learned as "macro 1" without
+// allowing an arbitrary unmentioned device.
+func (h *Handler) learnedActionAllows(text string, action actions.Action) bool {
+	words := significantWords(text)
+	if len(words) == 0 {
+		return false
+	}
+	for _, entry := range h.learnedEntries() {
+		if entry.Action != action.ID {
+			continue
+		}
+		entryWords := significantWords(entry.Text)
+		if slices.ContainsFunc(words, func(word string) bool {
+			return slices.Contains(entryWords, word)
+		}) {
+			return true
+		}
+	}
+	return false
 }
 
 // acceptsAction applies the same safety to a catalog action. A physical state
@@ -917,8 +1185,13 @@ const (
 )
 
 // physicalIntent classifies a sentence about a physical problem. It is wider
-// than stateAction: the model can still choose the action and the device.
+// than stateAction: the model can still choose the action and the device. A
+// question without an action verb is not a physical state, and a physical word
+// alone is not an intent: "¿qué temperatura hace?" asks for a datum.
 func physicalIntent(text string) intentKind {
+	if looksLikeQuestion(text) && !data.HasActionVerb(text) {
+		return intentNone
+	}
 	norm := learningKey(text)
 	switch {
 	case containsAny(norm,
@@ -929,14 +1202,30 @@ func physicalIntent(text string) intentKind {
 		"esta oscuro", "esta muy oscuro", "esta claro", "esta muy claro",
 		"mucho brillo", "demasiado brillo", "me sobra brillo"):
 		return intentLight
-	case containsAny(norm,
-		"frio", "calor", "temperatura", "grados"):
+	case containsAny(norm, "frio", "calor", "temperatura", "grados"):
+		if !data.HasActionVerb(text) && !firstPersonState(text) {
+			return intentNone
+		}
 		return intentTemperature
-	case containsAny(norm,
-		"humedad", "bochorno"):
+	case containsAny(norm, "humedad", "bochorno"):
+		if !data.HasActionVerb(text) && !firstPersonState(text) {
+			return intentNone
+		}
 		return intentAir
 	}
 	return intentNone
+}
+
+// firstPersonState reports whether the sentence describes the user's state
+// rather than asking for a datum. "Tengo frío" and "no veo nada" are states;
+// "temperatura" alone is not.
+func firstPersonState(text string) bool {
+	norm := learningKey(text)
+	return containsAny(norm,
+		"tengo", "estoy", "no veo", "no puedo ver", "necesito", "quiero",
+		"me falta", "me sobra", "me deslumbra", "me duele",
+		"hay poca", "hay mucha", "hace frio", "hace calor",
+		"esta oscuro", "esta muy oscuro", "esta claro", "esta muy claro")
 }
 
 // deviceFitsIntent reports whether the device can plausibly fix the problem.
@@ -1085,8 +1374,16 @@ func (h *Handler) askActions(ctx context.Context, text, homeContext string) (Int
 	if !ok {
 		return Interpretation{}, false
 	}
-	got, err := interpreter.InterpretActions(ctx, text, slices.Clone(h.actionList), homeContext)
+	list := slices.Clone(h.actionList)
+	var got Interpretation
+	var err error
+	if learned, ok := h.interpreter.(LearnedActionInterpreter); ok {
+		got, err = learned.InterpretActionsWithLearning(ctx, text, list, homeContext, h.learnedEntries())
+	} else {
+		got, err = interpreter.InterpretActions(ctx, text, list, homeContext)
+	}
 	if err != nil {
+		h.modelFailed = true
 		if h.logger != nil {
 			h.logger.Warn("language model", "error", err)
 		}
@@ -1098,6 +1395,22 @@ func (h *Handler) askActions(ctx context.Context, text, homeContext string) (Int
 		return Interpretation{}, false
 	}
 	return got, true
+}
+
+// learnedEntries returns the active sentence-to-action associations. The store
+// is snapshotted per call, so a phrase learned seconds before is already here.
+func (h *Handler) learnedEntries() []learning.Entry {
+	if h.learning == nil {
+		return nil
+	}
+	entries := h.learning.Snapshot(h.now()).Entries
+	active := make([]learning.Entry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Score > 0 {
+			active = append(active, entry)
+		}
+	}
+	return active
 }
 
 // allowActions keeps only catalog actions that still exist in the current
@@ -1130,6 +1443,7 @@ func (h *Handler) askInterpreter(ctx context.Context, text string, devices, allo
 		got.Commands, err = h.interpreter.Interpret(ctx, text, devices)
 	}
 	if err != nil {
+		h.modelFailed = true
 		if h.logger != nil {
 			h.logger.Warn("language model", "error", err)
 		}
@@ -1151,6 +1465,7 @@ func (h *Handler) askAnswer(ctx context.Context, text, homeContext string) (stri
 	}
 	reply, err := answerer.InterpretAnswer(ctx, text, homeContext)
 	if err != nil {
+		h.modelFailed = true
 		if h.logger != nil {
 			h.logger.Warn("language model", "error", err)
 		}
@@ -1181,9 +1496,10 @@ func (h *Handler) homeContext(ctx context.Context) string {
 }
 
 // acceptsReply reports whether a model reply is safe to speak. Replies are
-// limited in length, must not be an echo of the sentence, and are not used for
-// a sentence that names a device or asks for a physical fix. General answers do
-// not need Home Assistant context.
+// limited in length, must not be an echo of the sentence, and must contain
+// words. A question that names a device or a physical word is still a question:
+// rejecting its answer here was the bug that made "¿qué temperatura hace?"
+// impossible to answer.
 func (h *Handler) acceptsReply(text, reply string) bool {
 	reply = strings.TrimSpace(reply)
 	if reply == "" || len([]rune(reply)) > maxReplyRunes {
@@ -1192,13 +1508,7 @@ func (h *Handler) acceptsReply(text, reply string) bool {
 	if !strings.ContainsFunc(reply, func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }) {
 		return false
 	}
-	if replyEchoes(text, reply) {
-		return false
-	}
-	if _, ok := h.namedDevice(text); ok {
-		return false
-	}
-	return physicalIntent(text) == intentNone
+	return !replyEchoes(text, reply)
 }
 
 // replyEchoes reports whether most words of the reply also appear in the
@@ -1326,6 +1636,8 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) string {
 	switch cmd.Kind {
 	case KindTime:
 		return spokenTime(h.now())
+	case KindDate:
+		return spokenDate(h.now())
 	case KindRepeat:
 		if h.previous == "" {
 			return ReplyNothingToRepeat
@@ -1339,6 +1651,10 @@ func (h *Handler) Execute(ctx context.Context, cmd Command) string {
 		return h.setPower(ctx, cmd)
 	case KindAction:
 		return h.runAction(ctx, cmd)
+	case KindData, KindReply:
+		return cmd.Reply
+	case KindPending:
+		return ReplyPending
 	case KindPenalty:
 		return h.penalize(ctx)
 	default:
@@ -1437,18 +1753,26 @@ func (h *Handler) recordSuccess(ctx context.Context, cmd Command) {
 		source = "direct"
 	}
 	h.lastAction = feedback{text: cmd.Text, device: cmd.Device.ID, kind: cmd.Kind, source: source, at: h.now(), valid: true}
-	if cmd.Kind == KindAction {
+	switch cmd.Kind {
+	case KindAction:
 		h.lastAction.device = cmd.Action.EntityID
 		h.lastAction.action = cmd.Action.ID
+	case KindData, KindReply:
+		h.lastAction.device = ""
 	}
 	if h.learning == nil || !learnable(source) {
 		return
 	}
 	var entry learning.Entry
 	var err error
-	if cmd.Kind == KindAction {
+	switch cmd.Kind {
+	case KindAction:
 		entry, err = h.learning.LearnAction(cmd.Text, cmd.Action.ID, cmd.Action.Name, h.now())
-	} else {
+	case KindData:
+		entry, err = h.learning.LearnTemplate(cmd.Text, cmd.Template, h.now())
+	case KindReply:
+		entry, err = h.learning.LearnReply(cmd.Text, cmd.Reply, h.now())
+	default:
 		entry, err = h.learning.Learn(cmd.Text, cmd.Device.ID, cmd.Device.Name, string(cmd.Kind), h.now())
 	}
 	if err != nil {
@@ -1461,11 +1785,23 @@ func (h *Handler) recordSuccess(ctx context.Context, cmd Command) {
 		attrs := []any{"result", "success", "score", entry.Score, "successes", entry.Successes, "failures", entry.Failures, "kind", entry.Kind}
 		if entry.Action != "" {
 			attrs = append(attrs, "action", entry.Action)
-		} else {
+		} else if entry.Device != "" {
 			attrs = append(attrs, "device", entry.Device)
 		}
 		h.logger.Info("learning", attrs...)
 	}
+}
+
+// recordAnswer remembers a spoken answer so a later "mal" can penalize it. A
+// built-in answer has no entry, so the penalty has nothing to change; a learned
+// template or reply does.
+func (h *Handler) recordAnswer(source replySource, text string) {
+	kind := KindReply
+	switch source {
+	case replyData, replyPhysical, replyLearnedData:
+		kind = KindData
+	}
+	h.lastAction = feedback{text: learningKey(text), kind: kind, source: "data", at: h.now(), valid: true}
 }
 
 // penalize handles "mal": it penalizes the last action if it is recent. The
@@ -1477,13 +1813,16 @@ func (h *Handler) penalize(ctx context.Context) string {
 		return ReplyNothingToCorrect
 	}
 	learned := false
-	if h.learning != nil && last.text != "" && learnable(last.source) {
+	if h.learning != nil && last.text != "" && (learnable(last.source) || last.kind == KindData || last.kind == KindReply) {
 		var entry learning.Entry
 		var ok bool
 		var err error
-		if last.action != "" {
+		switch {
+		case last.kind == KindData || last.kind == KindReply:
+			entry, ok, err = h.learning.PenalizeEntry(last.text, h.now())
+		case last.action != "":
 			entry, ok, err = h.learning.PenalizeAction(last.text, last.action, h.now())
-		} else {
+		default:
 			entry, ok, err = h.learning.Penalize(last.text, last.device, string(last.kind), h.now())
 		}
 		switch {
@@ -1582,4 +1921,18 @@ func spokenTime(t time.Time) string {
 	default:
 		return fmt.Sprintf("%s y %d.", prefix, m)
 	}
+}
+
+var weekdaysSpanish = [...]string{"domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"}
+
+var monthsSpanish = [...]string{
+	"enero", "febrero", "marzo", "abril", "mayo", "junio",
+	"julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+}
+
+// spokenDate gives the date in spoken Spanish, for example "Hoy es martes, 24
+// de noviembre de 2026.".
+func spokenDate(t time.Time) string {
+	return fmt.Sprintf("Hoy es %s, %d de %s de %d.",
+		weekdaysSpanish[int(t.Weekday())], t.Day(), monthsSpanish[int(t.Month())-1], t.Year())
 }

@@ -23,14 +23,22 @@ import (
 const SnapshotVersion = 1
 
 // Entry is one learned sentence. Text is normalized by the caller. An entry
-// names either a device and its Kind ("turn-on" or "turn-off") or one action of
-// the generated catalog, for example "scene.cine.turn_on".
+// names one of:
+//
+//   - a device and its Kind ("turn-on" or "turn-off");
+//   - one action of the generated catalog, for example "scene.cine.turn_on";
+//   - a data template filled from an exposed entity at answer time;
+//   - a fixed reply for a question that has no data source;
+//   - a pending entry, whose target the client could not infer.
 type Entry struct {
 	Text      string    `json:"text"`
 	Device    string    `json:"device,omitempty"`
 	Name      string    `json:"name,omitempty"`
 	Kind      string    `json:"kind,omitempty"`
 	Action    string    `json:"action,omitempty"`
+	Template  string    `json:"template,omitempty"`
+	Reply     string    `json:"reply,omitempty"`
+	Pending   bool      `json:"pending,omitempty"`
 	Score     int       `json:"score"`
 	Successes int       `json:"successes"`
 	Failures  int       `json:"failures"`
@@ -118,11 +126,29 @@ func (s *Store) LearnAction(text, action, name string, now time.Time) (Entry, er
 	return s.learn(text, Entry{Action: action, Name: name}, now)
 }
 
+// LearnTemplate records that text is answered by a data template. A repeated
+// success raises the score, so a phrase that keeps working stays in use.
+func (s *Store) LearnTemplate(text, template string, now time.Time) (Entry, error) {
+	return s.learn(text, Entry{Template: template}, now)
+}
+
+// LearnReply records that text is answered by a fixed reply.
+func (s *Store) LearnReply(text, reply string, now time.Time) (Entry, error) {
+	return s.learn(text, Entry{Reply: reply}, now)
+}
+
+// LearnPending records a sentence whose target could not be inferred. It is
+// stored incomplete and never acts until the user completes it in Manhattan.
+func (s *Store) LearnPending(text string, now time.Time) (Entry, error) {
+	return s.learn(text, Entry{Pending: true}, now)
+}
+
 func (s *Store) learn(text string, want Entry, now time.Time) (Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, ok := s.entries[text]
-	if !ok || e.Device != want.Device || e.Kind != want.Kind || e.Action != want.Action {
+	if !ok || e.Device != want.Device || e.Kind != want.Kind || e.Action != want.Action ||
+		e.Template != want.Template || e.Reply != want.Reply || e.Pending != want.Pending {
 		e = want
 		e.Text = text
 		e.Score = 1
@@ -147,6 +173,26 @@ func (s *Store) Penalize(text, device, kind string, now time.Time) (Entry, bool,
 // PenalizeAction is Penalize for a generated catalog action.
 func (s *Store) PenalizeAction(text, action string, now time.Time) (Entry, bool, error) {
 	return s.penalize(text, Entry{Action: action}, now)
+}
+
+// PenalizeEntry penalizes any entry by its text: a reply or a template has no
+// device or action to match, so it uses its own method.
+func (s *Store) PenalizeEntry(text string, now time.Time) (Entry, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.entries[text]
+	if !ok {
+		return Entry{}, false, nil
+	}
+	e.Failures++
+	if e.Successes > 0 {
+		e.Successes--
+	}
+	e.Score = -1
+	e.Updated = now
+	s.entries[text] = e
+	s.revision++
+	return e, true, s.saveLocked()
 }
 
 func (s *Store) penalize(text string, want Entry, now time.Time) (Entry, bool, error) {
@@ -180,11 +226,23 @@ func (s *Store) Upsert(originalText string, e Entry, now time.Time) (Entry, erro
 	e.Action = strings.TrimSpace(e.Action)
 	e.Kind = strings.TrimSpace(e.Kind)
 	e.Name = strings.TrimSpace(e.Name)
+	e.Template = strings.TrimSpace(e.Template)
+	e.Reply = strings.TrimSpace(e.Reply)
 	if e.Text == "" {
 		return Entry{}, fmt.Errorf("%w: text is empty after normalization", ErrInvalidEntry)
 	}
-	if (e.Device == "") == (e.Action == "") {
-		return Entry{}, fmt.Errorf("%w: entry must name exactly one of device or action", ErrInvalidEntry)
+	targets := 0
+	for _, value := range []string{e.Device, e.Action, e.Template, e.Reply} {
+		if value != "" {
+			targets++
+		}
+	}
+	if e.Pending {
+		if targets > 0 {
+			return Entry{}, fmt.Errorf("%w: a pending entry cannot have a target", ErrInvalidEntry)
+		}
+	} else if targets != 1 {
+		return Entry{}, fmt.Errorf("%w: entry must name exactly one of device, action, template or reply", ErrInvalidEntry)
 	}
 	if e.Device != "" {
 		if e.Kind != "turn-on" && e.Kind != "turn-off" {
@@ -192,6 +250,12 @@ func (s *Store) Upsert(originalText string, e Entry, now time.Time) (Entry, erro
 		}
 	} else if e.Kind != "" {
 		return Entry{}, fmt.Errorf("%w: kind is only valid for a device", ErrInvalidEntry)
+	}
+	if e.Template != "" && len([]rune(e.Template)) > 400 {
+		return Entry{}, fmt.Errorf("%w: template is longer than 400 characters", ErrInvalidEntry)
+	}
+	if e.Reply != "" && len([]rune(e.Reply)) > 1000 {
+		return Entry{}, fmt.Errorf("%w: reply is longer than 1000 characters", ErrInvalidEntry)
 	}
 	if e.Successes < 0 || e.Failures < 0 {
 		return Entry{}, fmt.Errorf("%w: successes and failures must be zero or greater", ErrInvalidEntry)
