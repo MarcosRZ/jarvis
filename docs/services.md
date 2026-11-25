@@ -91,6 +91,8 @@ The collector keeps a background snapshot refreshed every 2 seconds and serves t
 
 The action catalog is generated separately from the container snapshot. The collector reads the Home Assistant exposure list over the WebSocket API and the entity states over the REST API, then applies the same catalog rules as the client. It refreshes the catalog every 30 seconds and keeps the last good catalog when Home Assistant is unreachable.
 
+Every row on the Actions page has a play button. It calls `POST /api/actions`, which forwards only the action ID to `POST /v1/actions/run` on the collector. The collector looks the ID up in its current catalog and calls the fixed Home Assistant service for that action, so the browser can never name a service, an entity or free-form data.
+
 The Learning page does not use the collector. The voice client publishes a read-only snapshot of learned associations to `POST /api/learning`, and the dashboard stores it in the `dashboard-data` volume and serves it at `GET /api/learning`. See [configuration.md](configuration.md#learning-snapshot).
 
 The collector container needs read access to the socket group:

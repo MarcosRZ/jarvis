@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -11,12 +12,24 @@ import (
 	actioncatalog "jarvis/actions"
 )
 
+var (
+	// ErrActionNotFound means that the ID is not in the current catalog, so it
+	// may not be run.
+	ErrActionNotFound = errors.New("action not found")
+	// ErrActionsUnavailable means that no catalog has ever been generated.
+	ErrActionsUnavailable = errors.New("action catalog unavailable")
+)
+
 const (
 	actionsInterval   = 30 * time.Second
 	exposureAssistant = "conversation"
 )
 
 var actionEntityID = regexp.MustCompile(`^([a-z0-9_]+)\.([a-z0-9_]+)$`)
+
+// actionService is the shape of a Home Assistant service name that the
+// collector may call: one domain and one service, both lowercase.
+var actionService = regexp.MustCompile(`^([a-z0-9_]+)\.([a-z0-9_]+)$`)
 
 // Actions returns the last generated action catalog. A background sampler
 // refreshes it every 30 seconds, which is the same interval that the voice
@@ -34,6 +47,46 @@ func (c *collector) Actions(ctx context.Context) ActionsSnapshot {
 	snapshot := c.buildActions(ctx)
 	c.storeActions(snapshot)
 	return cloneActions(snapshot)
+}
+
+// RunAction calls the fixed Home Assistant service of one catalog action. The
+// action must come from the current catalog, so the dashboard can only run the
+// services that the voice assistant may run and never an arbitrary one. Home
+// Assistant is the authority: the collector does not change the state itself.
+func (c *collector) RunAction(ctx context.Context, id string) (actioncatalog.Action, error) {
+	if c.home == nil {
+		return actioncatalog.Action{}, ErrActionsUnavailable
+	}
+	catalog := c.Actions(ctx)
+	if catalog.Source.State == SourceDisabled || catalog.Source.State == SourceUnavailable {
+		return actioncatalog.Action{}, ErrActionsUnavailable
+	}
+	var action actioncatalog.Action
+	found := false
+	for _, candidate := range catalog.Actions {
+		if candidate.ID == id {
+			action, found = candidate, true
+			break
+		}
+	}
+	if !found {
+		return actioncatalog.Action{}, ErrActionNotFound
+	}
+	// A catalog action is data, not a command: the service must belong to the
+	// same domain as the entity, and both names must be plain identifiers.
+	if !actionEntityID.MatchString(action.EntityID) {
+		return actioncatalog.Action{}, fmt.Errorf("action %q has an invalid entity %q", action.ID, action.EntityID)
+	}
+	service := actionService.FindStringSubmatch(action.Service)
+	if service == nil || service[1] != action.Domain {
+		return actioncatalog.Action{}, fmt.Errorf("action %q has an invalid service %q", action.ID, action.Service)
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, c.cfg.RequestTimeout)
+	defer cancel()
+	if err := c.home.CallService(requestCtx, action.Service, action.EntityID, action.Data); err != nil {
+		return actioncatalog.Action{}, err
+	}
+	return action, nil
 }
 
 func (c *collector) storeActions(snapshot ActionsSnapshot) {
