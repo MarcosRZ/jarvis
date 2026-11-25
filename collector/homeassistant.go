@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -38,6 +40,45 @@ func newHomeAssistantClient(cfg homeAssistantConfig, timeout time.Duration) *hom
 		token:   cfg.Token,
 		client:  &http.Client{Timeout: timeout},
 	}
+}
+
+// CallService runs one Home Assistant service for one entity. The dashboard
+// only reaches it through the catalog, so the service and the data are fixed
+// values, not free text from the browser.
+func (c *homeAssistantClient) CallService(ctx context.Context, service, entityID string, data map[string]any) error {
+	body := make(map[string]any, len(data)+1)
+	for key, value := range data {
+		body[key] = value
+	}
+	// entity_id is set last, so action data can never redirect the call.
+	body["entity_id"] = entityID
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	domain, name, ok := strings.Cut(service, ".")
+	if !ok || domain == "" || name == "" {
+		return fmt.Errorf("invalid service %q", service)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/services/"+domain+"/"+name, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+c.token)
+	request.Header.Set("Content-Type", "application/json")
+	response, err := c.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<16))
+	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("home assistant rejected the token")
+	}
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		return fmt.Errorf("home assistant returned %s", response.Status)
+	}
+	return nil
 }
 
 func (c *homeAssistantClient) States(ctx context.Context) ([]haState, error) {

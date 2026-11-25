@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -118,6 +119,41 @@ func routes(app *collector) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, response)
+	})
+
+	mux.HandleFunc("/v1/actions/run", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var request struct {
+			ID string `json:"id"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&request); err != nil || strings.TrimSpace(request.ID) == "" {
+			writeError(w, http.StatusBadRequest, "invalid action request")
+			return
+		}
+		action, err := app.RunAction(r.Context(), request.ID)
+		if err != nil {
+			switch {
+			case errors.Is(err, ErrActionNotFound):
+				writeError(w, http.StatusNotFound, "action not found")
+			case errors.Is(err, ErrActionsUnavailable):
+				writeError(w, http.StatusConflict, "action catalog unavailable")
+			default:
+				log.Printf("run action %s: %v", request.ID, err)
+				writeError(w, http.StatusBadGateway, "action failed")
+			}
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]string{
+			"id":     action.ID,
+			"name":   action.Name,
+			"status": "run",
+		})
 	})
 
 	mux.HandleFunc("/v1/services/{id}/restart", func(w http.ResponseWriter, r *http.Request) {
