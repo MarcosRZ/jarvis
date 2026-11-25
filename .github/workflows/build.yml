@@ -1,19 +1,18 @@
-# Builds voice-client.exe for the Windows PC. Tests live in test.yml.
+# Builds voice-client.exe for the Windows PC, manually for now.
 #
-# - Every push to main and every pull request: the .exe as a workflow artifact
-#   (download it from the run page, logged in).
-# - A tag v*: the same, and a GitHub release with voice-client.exe and its
-#   SHA-256. The repository is public, so the Windows PC downloads it without
-#   a login: .\scripts\run.ps1 -Update.
+# - Run it from the Actions page ("Run workflow"). It is not started by pushes
+#   or pull requests; tests live in test.yml.
+# - The .exe is kept as a workflow artifact (download it from the run page,
+#   logged in).
+# - Run it on a tag v* and it also publishes a GitHub release with
+#   voice-client.exe and its SHA-256. The repository is public, so the Windows
+#   PC downloads it without a login: .\scripts\run.ps1 -Update.
 #
 # Actions are pinned by commit, like the Docker images by digest.
 name: build
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
