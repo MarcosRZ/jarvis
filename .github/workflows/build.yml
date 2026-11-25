@@ -1,37 +1,24 @@
-# Tests the client, and builds voice-client.exe for the Windows PC.
+# Builds voice-client.exe for the Windows PC, manually for now.
 #
-# - Every push to main and every pull request: lint, unit tests, and the .exe
-#   as a workflow artifact (download it from the run page, logged in).
-# - A tag v*: the same, and a GitHub release with voice-client.exe and its
-#   SHA-256. The repository is public, so the Windows PC downloads it without
-#   a login: .\scripts\run.ps1 -Update.
+# - Run it from the Actions page ("Run workflow"). It is not started by pushes
+#   or pull requests; tests live in test.yml.
+# - The .exe is kept as a workflow artifact (download it from the run page,
+#   logged in).
+# - Run it on a tag v* and it also publishes a GitHub release with
+#   voice-client.exe and its SHA-256. The repository is public, so the Windows
+#   PC downloads it without a login: .\scripts\run.ps1 -Update.
 #
 # Actions are pinned by commit, like the Docker images by digest.
 name: build
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: client/go.mod
-          cache-dependency-path: client/go.sum
-      - run: make lint
-      - run: make test
-
   windows:
-    needs: test
     runs-on: ubuntu-24.04
     permissions:
       contents: write # only used by the release step, on a tag

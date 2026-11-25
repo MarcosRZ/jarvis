@@ -30,10 +30,13 @@ make clean
 
 ## CI and releases
 
-`.github/workflows/build.yml` runs on every push to `main` and every pull request:
+Two workflows run on GitHub Actions:
 
-- `make lint`
-- `make test`
-- a Windows build, kept as the artifact `voice-client-windows`
+`.github/workflows/test.yml` runs on every push to `main` and every pull request:
 
-A tag such as `v0.2.0` also publishes a GitHub release with `voice-client.exe` and its checksum. `voice-client version` prints the tag.
+- `go`: `make lint` and `make test` (client, shared actions, collector and news).
+- `dashboard`: `npm ci`, `npm run lint` and `npm run build`.
+
+`.github/workflows/build.yml` builds voice-client.exe for Windows and keeps it as the artifact `voice-client-windows`. For now it runs only manually, from the Actions page ("Run workflow").
+
+If you run it on a tag such as `v0.2.0`, it also publishes a GitHub release with `voice-client.exe` and its checksum. `voice-client version` prints the tag.
