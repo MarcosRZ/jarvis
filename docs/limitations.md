@@ -11,6 +11,7 @@
 - Device suffixes follow the system device order. Reconnecting a device can change which suffix points to which device.
 - After an audio device disconnects, the client does not reopen it. Restart the assistant.
 - The output keepalive holds the speaker that was selected at startup, so changing the output device needs an assistant restart. Set `VOICE_KEEP_OUTPUT_AWAKE=false` to let the device sleep, for example with battery-powered headphones; an idle Bluetooth sink can then swallow the beep.
+- Diagnostic tail recordings contain microphone audio from just after a reply, so they can include nearby private speech. They are off by default; when `VOICE_TAIL_DIR` is set, the client keeps only the newest `VOICE_TAIL_KEEP` files with mode `0600` in that directory.
 - The local model can choose the wrong exposed device or answer incorrectly. Use `VOICE_LLM_SAFETY=guard`, unexpose devices it must not control, or disable it with `VOICE_LLM_MODE=off`.
 - The model has no internet access or conversation state. General answers use its own knowledge; state answers use the snapshot it receives.
 - Prompt changes apply when the assistant restarts.

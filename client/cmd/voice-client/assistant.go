@@ -18,7 +18,9 @@ import (
 	"jarvis/client/internal/news"
 	"jarvis/client/internal/pipeline"
 	"jarvis/client/internal/stt"
+	"jarvis/client/internal/tailrec"
 	"jarvis/client/internal/textinput"
+	"jarvis/client/internal/tts"
 	"jarvis/client/internal/wakeword"
 )
 
@@ -61,6 +63,20 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	keepAlive := openKeepAlive(cfg, backend, logger)
 	if keepAlive != nil {
 		defer keepAlive.Close()
+	}
+	var tails *tailrec.Recorder
+	if cfg.TailDir != "" {
+		tails = tailrec.New(cfg.TailDir, cfg.TailKeep, cfg.TailSeconds, capture.Format(), capture, logger)
+	}
+	say := speaker.Say
+	if tails != nil {
+		say = func(ctx context.Context, text string) (tts.Timing, error) {
+			timing, err := speaker.Say(ctx, text)
+			if err == nil {
+				tails.Start(ctx)
+			}
+			return timing, err
+		}
 	}
 	detector := newDetector(cfg, capture.Format(), logger)
 	transcriber := stt.New(stt.Config{Addr: cfg.STTAddr, Language: cfg.STTLanguage, Timeouts: timeouts(cfg)})
@@ -137,7 +153,7 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 		},
 		Transcribe: transcriber.Transcribe,
 		Handle:     handler.Handle,
-		Say:        speaker.Say,
+		Say:        say,
 		Continue:   handler.FlowActive,
 		RecordDialogue: func(ctx context.Context) (audio.Recording, error) {
 			return audio.Record(ctx, capture, capture.Format(), dialogueLimits)
@@ -153,7 +169,7 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 		}
 		logger.Info("text input", "addr", cfg.TextAddr)
 	}
-	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled, "keep_output_awake", keepAlive != nil)
+	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled, "keep_output_awake", keepAlive != nil, "tail_dir", cfg.TailDir)
 	return stopCode(p.Run(ctx), logger)
 }
 

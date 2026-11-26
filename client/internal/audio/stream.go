@@ -20,6 +20,10 @@ var (
 // took from the ring.
 const drainTail = 200 * time.Millisecond
 
+// tapBuffer is how much captured audio the diagnostic tail keeps. It is a
+// second reader, so a tail never takes audio from the wake word or a command.
+const tapBuffer = 4 * time.Second
+
 type stream struct {
 	device  *malgo.Device
 	ring    *Ring
@@ -52,9 +56,11 @@ func (s *stream) onStop() {
 
 // Capture gives microphone audio. The audio callback only copies samples into
 // a bounded ring; when the reader is too slow the oldest samples are dropped.
+// A second ring keeps the most recent audio for diagnostic tails.
 type Capture struct {
 	stream
 	dropped atomic.Int64
+	tap     *Ring
 }
 
 // OpenCapture opens the input device with label (empty for the system default)
@@ -68,7 +74,10 @@ func (b *Backend) OpenCapture(label string, format Format, buffer time.Duration)
 	if err != nil {
 		return nil, err
 	}
-	c := &Capture{stream: stream{ring: NewRing(format.BytesFor(buffer), format.FrameSize()), format: format}}
+	c := &Capture{
+		stream: stream{ring: NewRing(format.BytesFor(buffer), format.FrameSize()), format: format},
+		tap:    NewRing(format.BytesFor(tapBuffer), format.FrameSize()),
+	}
 	config := malgo.DefaultDeviceConfig(malgo.Capture)
 	config.Capture.Format = malgo.FormatS16
 	config.Capture.Channels = uint32(format.Channels)
@@ -79,6 +88,7 @@ func (b *Backend) OpenCapture(label string, format Format, buffer time.Duration)
 	}
 	data := func(_, input []byte, _ uint32) {
 		c.dropped.Add(int64(c.ring.Push(input)))
+		c.tap.Push(input)
 	}
 	if err := c.start(b, config, data, deviceName(label)); err != nil {
 		return nil, err
@@ -95,6 +105,24 @@ func (c *Capture) Read(ctx context.Context, p []byte) (int, error) {
 // Discard drops the audio captured but not read yet, for example the
 // assistant's own voice captured while it spoke.
 func (c *Capture) Discard() { c.ring.Reset() }
+
+// Tail returns the next d of captured audio, starting now, from a second ring
+// that does not consume the main capture stream. It is used for diagnostic
+// recordings after a reply.
+func (c *Capture) Tail(ctx context.Context, d time.Duration) ([]byte, error) {
+	c.tap.Reset()
+	pcm := make([]byte, c.format.BytesFor(d))
+	if err := ReadFull(ctx, c.tap, pcm); err != nil {
+		return nil, err
+	}
+	return pcm, nil
+}
+
+// Close stops the device and closes both capture rings.
+func (c *Capture) Close() {
+	c.stream.Close()
+	c.tap.Close(ErrClosed)
+}
 
 // Dropped returns the number of bytes lost because the reader was too slow.
 func (c *Capture) Dropped() int64 { return c.dropped.Load() }
