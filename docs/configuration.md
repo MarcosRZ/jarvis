@@ -56,7 +56,9 @@ See [audio.md](audio.md) for the wake-word high-pass and the diagnostic tails.
 
 | Setting | Use |
 |---|---|
-| `VOICE_LLM_URL` | llama.cpp server, default `http://127.0.0.1:8080` |
+| `VOICE_LLM_URL` | Base URL of an OpenAI-compatible endpoint; default is the local llama.cpp at `http://127.0.0.1:8080` |
+| `VOICE_LLM_MODEL` | Model name; empty uses the first model reported by the endpoint. `local` is the llama.cpp default |
+| `VOICE_LLM_API_KEY` | Optional bearer token for a remote endpoint |
 | `VOICE_LLM_MODE` | `fallback` (default) or `off` |
 | `VOICE_LLM_ORDER` | `ha-first` (default) or `model-first` |
 | `VOICE_LLM_SAFETY` | `guard` (default), `literal` or `states` |

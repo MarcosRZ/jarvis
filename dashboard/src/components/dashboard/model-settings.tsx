@@ -68,6 +68,16 @@ export function ModelSettingsPanel({ onSaved }: { onSaved?: () => void }) {
     setStatus({ kind: "idle", message: "" });
   }
 
+  function useLocal() {
+    setValues((current) => ({
+      ...current,
+      url: "http://127.0.0.1:8080",
+      model: "local",
+      timeout: "30s",
+    }));
+    setStatus({ kind: "idle", message: "" });
+  }
+
   async function connect() {
     setSaving(true);
     setStatus({ kind: "loading", message: "Probing the endpoint..." });
@@ -86,17 +96,23 @@ export function ModelSettingsPanel({ onSaved }: { onSaved?: () => void }) {
       const data = (await response.json()) as {
         ok?: boolean;
         configured?: boolean;
+        model?: string;
         error?: string;
       };
       if (!response.ok || !data.ok) {
         throw new Error(data.error ?? `HTTP ${response.status}`);
       }
-      setValues((current) => ({ ...current, configured: Boolean(data.configured) }));
+      setValues((current) => ({
+        ...current,
+        model: data.model || current.model,
+        configured: Boolean(data.configured),
+      }));
       setApiKey("");
       setStatus({
         kind: "saved",
-        message:
-          "Connected and saved. The voice client applies the change within 30 seconds.",
+        message: `Connected and saved${
+          data.model ? ` with model ${data.model}` : ""
+        }. The voice client applies the change within 30 seconds.`,
       });
       onSaved?.();
     } catch (error) {
@@ -147,18 +163,22 @@ export function ModelSettingsPanel({ onSaved }: { onSaved?: () => void }) {
             className="text-sm"
           />
           <span className="block text-[10px] text-muted-foreground">
-            Base URL of an OpenAI-compatible chat-completions endpoint.
+            Base URL of an OpenAI-compatible chat-completions endpoint. This is
+            the only required field; local llama.cpp uses the value below.
           </span>
         </label>
         <label className="space-y-2">
-          <span className="text-sm font-medium">Model name</span>
+          <span className="text-sm font-medium">Model name (optional)</span>
           <Input
             value={values.model}
             onChange={(event) => update("model", event.target.value)}
-            placeholder="local"
+            placeholder="Detected from /v1/models"
             maxLength={200}
             className="text-sm"
           />
+          <span className="block text-[10px] text-muted-foreground">
+            Empty uses the first model reported by the endpoint.
+          </span>
         </label>
         <label className="space-y-2">
           <span className="text-sm font-medium">Timeout</span>
@@ -195,6 +215,9 @@ export function ModelSettingsPanel({ onSaved }: { onSaved?: () => void }) {
       <div className="flex flex-wrap items-center gap-2">
         <Button onClick={connect} disabled={saving || values.url.trim() === ""}>
           {saving ? "Connecting..." : "Connect model"}
+        </Button>
+        <Button variant="outline" onClick={useLocal} disabled={saving}>
+          Use local model
         </Button>
         {values.configured && (
           <Button variant="outline" onClick={clearKey} disabled={saving}>

@@ -190,20 +190,23 @@ Jarvis is model-agnostic. Any OpenAI-compatible endpoint is valid. Today it is
 the 0.5B model in the local container; tomorrow it can be a larger model on a
 desktop machine with a GPU or a cloud API.
 
-Manhattan has a **Model** section with:
+Manhattan has a **Model endpoint** section with:
 
-- URL.
-- Model name.
+- URL. This is the only required field; the local default is
+  `http://127.0.0.1:8080`.
+- Model name. It is optional: when empty, the dashboard uses the first model
+  reported by the endpoint's `/v1/models`.
 - Timeout.
 - Optional API key. The key is write-only: the API stores it with mode `0600`
   and never returns it, only `configured` and a clear button.
 
-A **Conectar Modelo** button probes the endpoint and saves the configuration
-only when the probe succeeds. On failure it shows the error and keeps the
-previous configuration. The client polls the settings every 30 seconds and
-applies the new configuration to the next request, without a restart. In-flight
-requests finish with the previous client. If the dashboard is unreachable, the
-client keeps the last known configuration.
+A **Conectar Modelo** button probes the endpoint, detects the model when the
+name is empty, and saves the configuration only when the probe succeeds. On
+failure it shows the error and keeps the previous configuration. The client
+polls the settings every 30 seconds and applies the new configuration to the
+next request, without a restart. In-flight requests finish with the previous
+client. If the dashboard is unreachable, the client keeps the last known
+configuration.
 
 ## News service
 
