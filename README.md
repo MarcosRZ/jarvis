@@ -142,6 +142,7 @@ More: [docs/limitations.md](docs/limitations.md).
 | Document | Content |
 |---|---|
 | [configuration.md](docs/configuration.md) | Client and server settings |
+| [audio.md](docs/audio.md) | Wake-word filter, diagnostic tails and hum troubleshooting |
 | [commands.md](docs/commands.md) | How commands are resolved, learned and guarded |
 | [home-assistant.md](docs/home-assistant.md) | Exposure, token and development Home Assistant |
 | [services.md](docs/services.md) | Docker services, models, tuning and troubleshooting |

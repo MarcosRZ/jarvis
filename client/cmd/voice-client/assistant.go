@@ -79,6 +79,7 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 		}
 	}
 	detector := newDetector(cfg, capture.Format(), logger)
+	wakeInput := wakeSource(cfg, capture)
 	transcriber := stt.New(stt.Config{Addr: cfg.STTAddr, Language: cfg.STTLanguage, Timeouts: timeouts(cfg)})
 	newsClient := &news.Client{URL: cfg.NewsURL, Timeout: haTimeout, PerFeed: 1}
 	handler, err := newCommandHandler(ctx, cfg, logger, newsClient)
@@ -146,7 +147,7 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	}
 
 	p := pipeline.New(pipeline.Steps{
-		WaitForWakeWord: func(ctx context.Context) (wakeword.Detection, error) { return detector.Wait(ctx, capture) },
+		WaitForWakeWord: func(ctx context.Context) (wakeword.Detection, error) { return detector.Wait(ctx, wakeInput) },
 		Acknowledge:     acknowledge,
 		Record: func(ctx context.Context) (audio.Recording, error) {
 			return audio.Record(ctx, capture, capture.Format(), limits)
@@ -169,7 +170,7 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 		}
 		logger.Info("text input", "addr", cfg.TextAddr)
 	}
-	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled, "keep_output_awake", keepAlive != nil, "tail_dir", cfg.TailDir)
+	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled, "keep_output_awake", keepAlive != nil, "tail_dir", cfg.TailDir, "wake_word_highpass", cfg.WakeWordHighPass)
 	return stopCode(p.Run(ctx), logger)
 }
 
