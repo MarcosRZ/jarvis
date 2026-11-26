@@ -182,6 +182,27 @@ func run(t *testing.T, d *Detector, src audio.Source, want int, timeout time.Dur
 	}
 }
 
+func TestRunResetsLongSession(t *testing.T) {
+	f := &fakeWake{models: []string{testModel}, stream: func(_ int, conn net.Conn, r *bufio.Reader) {
+		drain(r)
+	}}
+	addr := f.start(t)
+	d := newDetector(addr, 0)
+	d.cfg.SessionMax = 20 * time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := d.Run(ctx, &silence{}, make(chan Detection)); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Run error %v, want deadline", err)
+	}
+	f.mu.Lock()
+	streams := f.streams
+	f.mu.Unlock()
+	if streams < 2 {
+		t.Fatalf("%d streams, want at least 2 session resets", streams)
+	}
+}
+
 func TestRunRejectsUnknownModel(t *testing.T) {
 	addr := (&fakeWake{models: []string{"okay_nabu", "alexa"}}).start(t)
 	res := run(t, newDetector(addr, 0), &silence{}, 1, 2*time.Second)

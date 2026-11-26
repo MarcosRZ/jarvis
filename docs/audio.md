@@ -93,6 +93,18 @@ the remaining broadband rumble; a 120 Hz high-pass removed the false wake, and a
 16 kHz English "Alexa" sample still triggered. The exact cutoff is
 microphone-dependent.
 
+## Long-lived sessions
+
+openWakeWord keeps streaming state for as long as the connection is open. After
+hours of silence that state can drift and produce a detection whose pre-roll
+audio does not trigger when replayed on a fresh connection. That pattern points
+to the session, not to the sound.
+
+`VOICE_WAKEWORD_SESSION_MAX` reconnects the service periodically to reset it.
+`0` keeps the connection; `2m` is a useful test. The capture ring buffers the
+audio during the short reconnect, so no wake word is lost. A periodic reset does
+not change the model or the threshold.
+
 ## Related settings
 
 - `WAKEWORD_THRESHOLD` (server `.env`) controls the openWakeWord sensitivity.
