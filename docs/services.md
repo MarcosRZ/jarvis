@@ -73,7 +73,7 @@ If a download is interrupted, Whisper can fail with `Unable to open file 'model.
 
 ## Dashboard settings
 
-Open http://127.0.0.1:3005/settings to edit the language model prompt and the per-service configuration overrides. Overrides are stored in `/data/settings.json` in the `dashboard-data` volume; empty fields keep using the `.env` files. Server and shared changes are exported by `GET /api/settings/compose`, which `make services-up` reads before `docker compose`. Client changes are read by the assistant at startup through `VOICE_SETTINGS_URL`; restart `make run` to apply them. See [configuration.md](configuration.md#dashboard-settings-overrides).
+Open http://127.0.0.1:3005/settings to edit the language model prompt and the per-service configuration overrides. Overrides are stored in `/data/settings.json` in the `dashboard-data` volume; empty fields keep using the `.env` files. Server and shared changes are exported by `GET /api/settings/compose`, which `make services-up` reads before `docker compose`. Client changes are read by the assistant at startup through `VOICE_SETTINGS_URL`; the model endpoint applies within 30 seconds without a restart, while other client overrides need `make run` to restart. See [configuration.md](configuration.md#dashboard-settings-overrides).
 
 The prompt is stored separately in `/data/prompt.json` and served at `/api/settings/prompt`. The client reads it at startup through `VOICE_PROMPT_URL`.
 

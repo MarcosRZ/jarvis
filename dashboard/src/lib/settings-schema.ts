@@ -663,9 +663,9 @@ export const settingsSections: SettingSection[] = [
   },
   {
     id: "model",
-    title: "Model",
+    title: "Model endpoint",
     description:
-      "Model-agnostic OpenAI-compatible endpoint. The Connect model button probes it before saving, and the voice client applies the change without a restart.",
+      "Set the OpenAI-compatible base URL. The model name is optional and detected from /v1/models. Connect model probes the endpoint before saving, and the voice client applies the change without a restart.",
     fields: [
       {
         key: "VOICE_LLM_URL",
@@ -679,10 +679,10 @@ export const settingsSections: SettingSection[] = [
       {
         key: "VOICE_LLM_MODEL",
         label: "Model name",
-        description: "Model sent with every request. Use local for llama.cpp.",
+        description: "Model sent with every request. Empty uses the first model reported by the endpoint; local is the llama.cpp default.",
         scope: "client",
         type: "text",
-        placeholder: "local",
+        placeholder: "Detected from /v1/models",
         maxLength: 200,
       },
       {

@@ -129,8 +129,15 @@ Server and shared overrides are exported by `GET /api/settings/compose`.
 `make services-up` fetches and exports them before `docker compose`, so they win
 over `server/.env`; run it after saving. Client overrides are served by
 `GET /api/settings/client` and read by the assistant at startup through
-`VOICE_SETTINGS_URL`; restart `make run` to apply them. If the dashboard is
+`VOICE_SETTINGS_URL`; the model endpoint is polled and applies within 30
+seconds, while other client overrides need a `make run` restart. If the dashboard is
 unreachable, both fall back to the `.env` files.
+
+The **Model endpoint** panel only requires the endpoint URL. The model name is
+optional: when it is empty, `Connect model` reads `/v1/models` and stores the
+first model reported by the endpoint. A **Use local model** button fills the
+local llama.cpp URL and model. The API key is optional and write-only. The
+client applies a successful change within 30 seconds without a restart.
 
 The prompt is stored separately in `/data/prompt.json` and served at
 `/api/settings/prompt`. The client reads it at startup through

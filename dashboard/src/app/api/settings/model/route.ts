@@ -45,7 +45,9 @@ function probeBase(url: string): string {
   }
 }
 
-async function probe(url: string, model: string, apiKey: string): Promise<string | null> {
+type ProbeResult = { error?: string; model?: string };
+
+async function probe(url: string, model: string, apiKey: string): Promise<ProbeResult> {
   const base = probeBase(url);
   const headers: Record<string, string> = { Accept: "application/json" };
   if (apiKey) {
@@ -58,16 +60,22 @@ async function probe(url: string, model: string, apiKey: string): Promise<string
       signal: AbortSignal.timeout(8000),
     });
     if (models.ok) {
-      return null;
+      let detected = "";
+      try {
+        detected = firstModel(await models.json());
+      } catch {
+        // A non-JSON /v1/models response still means the endpoint answered.
+      }
+      return { model: detected };
     }
     if (models.status === 401 || models.status === 403) {
-      return `The endpoint rejected the API key (HTTP ${models.status}).`;
+      return { error: `The endpoint rejected the API key (HTTP ${models.status}).` };
     }
     if (models.status !== 404 && models.status !== 405) {
-      return `The endpoint answered HTTP ${models.status}.`;
+      return { error: `The endpoint answered HTTP ${models.status}.` };
     }
   } catch (error) {
-    return error instanceof Error ? error.message : "The endpoint is unreachable.";
+    return { error: error instanceof Error ? error.message : "The endpoint is unreachable." };
   }
 
   // Some OpenAI-compatible servers do not expose /v1/models. A one-token
@@ -86,13 +94,42 @@ async function probe(url: string, model: string, apiKey: string): Promise<string
       }),
     });
     if (response.ok) {
-      return null;
+      return {};
     }
     const detail = (await response.text()).slice(0, 200).trim();
-    return `The endpoint answered HTTP ${response.status}${detail ? `: ${detail}` : ""}.`;
+    return { error: `The endpoint answered HTTP ${response.status}${detail ? `: ${detail}` : ""}.` };
   } catch (error) {
-    return error instanceof Error ? error.message : "The endpoint is unreachable.";
+    return { error: error instanceof Error ? error.message : "The endpoint is unreachable." };
   }
+}
+
+// firstModel returns the first model id from the common /v1/models shapes.
+// llama.cpp also returns a models array with name/model fields.
+function firstModel(body: unknown): string {
+  if (typeof body !== "object" || body === null) {
+    return "";
+  }
+  const record = body as Record<string, unknown>;
+  for (const key of ["data", "models"]) {
+    const list = record[key];
+    if (!Array.isArray(list)) {
+      continue;
+    }
+    for (const item of list) {
+      if (typeof item === "string" && item !== "") {
+        return item;
+      }
+      if (typeof item === "object" && item !== null) {
+        const entry = item as Record<string, unknown>;
+        for (const field of ["id", "name", "model"]) {
+          if (typeof entry[field] === "string" && entry[field] !== "") {
+            return entry[field];
+          }
+        }
+      }
+    }
+  }
+  return "";
 }
 
 export async function GET() {
@@ -123,7 +160,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400, headers: noStore });
   }
   const url = text(body.url);
-  const model = text(body.model);
+  let model = text(body.model);
   const timeout = text(body.timeout);
   const apiKey = text(body.apiKey);
   for (const [key, value] of [
@@ -145,9 +182,12 @@ export async function POST(request: Request) {
 
   const existing = await readSettings();
   const key = apiKey || existing[keys.apiKey] || "";
-  const problem = await probe(url, model, key);
-  if (problem) {
-    return NextResponse.json({ error: problem }, { status: 502, headers: noStore });
+  const probed = await probe(url, model, key);
+  if (probed.error) {
+    return NextResponse.json({ error: probed.error }, { status: 502, headers: noStore });
+  }
+  if (model === "" && probed.model) {
+    model = probed.model;
   }
 
   const next = { ...existing };
@@ -171,7 +211,10 @@ export async function POST(request: Request) {
       { status: 500, headers: noStore },
     );
   }
-  return NextResponse.json({ ok: true, configured: Boolean(next[keys.apiKey]) }, { headers: noStore });
+  return NextResponse.json(
+    { ok: true, configured: Boolean(next[keys.apiKey]), model: next[keys.model] ?? "" },
+    { headers: noStore },
+  );
 }
 
 export async function DELETE() {
