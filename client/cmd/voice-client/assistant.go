@@ -58,6 +58,10 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	if err := speaker.Check(ctx); err != nil {
 		return stopCode(err, logger)
 	}
+	keepAlive := openKeepAlive(cfg, backend, logger)
+	if keepAlive != nil {
+		defer keepAlive.Close()
+	}
 	detector := newDetector(cfg, capture.Format(), logger)
 	transcriber := stt.New(stt.Config{Addr: cfg.STTAddr, Language: cfg.STTLanguage, Timeouts: timeouts(cfg)})
 	newsClient := &news.Client{URL: cfg.NewsURL, Timeout: haTimeout, PerFeed: 1}
@@ -149,7 +153,7 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 		}
 		logger.Info("text input", "addr", cfg.TextAddr)
 	}
-	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled)
+	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled, "keep_output_awake", keepAlive != nil)
 	return stopCode(p.Run(ctx), logger)
 }
 
