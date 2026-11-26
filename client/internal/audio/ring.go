@@ -147,6 +147,23 @@ func (r *Ring) Reset() {
 	signal(r.writable)
 }
 
+// Snapshot copies the newest n bytes without removing them, in whole frames.
+// A request larger than the buffered data returns all of it.
+func (r *Ring) Snapshot(n int) []byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	n = min(n, r.length) / r.frameSize * r.frameSize
+	if n <= 0 {
+		return nil
+	}
+	out := make([]byte, n)
+	first := copy(out, r.buf[(r.start+r.length-n)%len(r.buf):])
+	if first < n {
+		copy(out[first:], r.buf[:n-first])
+	}
+	return out
+}
+
 // Close makes blocked and later calls return err once the buffer is empty.
 func (r *Ring) Close(err error) {
 	r.mu.Lock()

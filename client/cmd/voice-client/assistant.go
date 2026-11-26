@@ -147,8 +147,14 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 	}
 
 	p := pipeline.New(pipeline.Steps{
-		WaitForWakeWord: func(ctx context.Context) (wakeword.Detection, error) { return detector.Wait(ctx, wakeInput) },
-		Acknowledge:     acknowledge,
+		WaitForWakeWord: func(ctx context.Context) (wakeword.Detection, error) {
+			det, err := detector.Wait(ctx, wakeInput)
+			if err == nil && tails != nil {
+				tails.SaveLast(capture.Last(cfg.TailSeconds))
+			}
+			return det, err
+		},
+		Acknowledge: acknowledge,
 		Record: func(ctx context.Context) (audio.Recording, error) {
 			return audio.Record(ctx, capture, capture.Format(), limits)
 		},

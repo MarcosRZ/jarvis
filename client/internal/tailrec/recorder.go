@@ -1,6 +1,6 @@
-// Package tailrec saves short diagnostic recordings of the microphone after a
-// reply. Only the most recent files are kept, so the recordings cannot fill the
-// disk.
+// Package tailrec saves short diagnostic recordings of the microphone: three
+// seconds after a reply, and three seconds before a wake-word detection. Only
+// the most recent files are kept, so the recordings cannot fill the disk.
 package tailrec
 
 import (
@@ -13,21 +13,25 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"jarvis/client/internal/audio"
 )
 
-const filePrefix = "tail-"
+const (
+	replyPrefix = "tail-"
+	wakePrefix  = "wake-"
+)
 
 // Source returns d of microphone audio, starting now.
 type Source interface {
 	Tail(ctx context.Context, d time.Duration) ([]byte, error)
 }
 
-// Recorder writes one WAV after a reply and deletes the oldest files above
-// keep. Start never blocks the caller.
+// Recorder writes one WAV after a reply or before a wake word and deletes the
+// oldest files above keep. Start never blocks the caller.
 type Recorder struct {
 	dir      string
 	keep     int
@@ -37,6 +41,7 @@ type Recorder struct {
 	now      func() time.Time
 	logger   *slog.Logger
 	running  atomic.Bool
+	mu       sync.Mutex
 }
 
 func New(dir string, keep int, duration time.Duration, format audio.Format, source Source, logger *slog.Logger) *Recorder {
@@ -73,7 +78,7 @@ func (r *Recorder) record(ctx context.Context) {
 		}
 		return
 	}
-	path, err := r.save(pcm)
+	path, err := r.save(pcm, replyPrefix)
 	if err != nil {
 		r.logger.Warn("tail recording failed", "error", err)
 		return
@@ -81,11 +86,29 @@ func (r *Recorder) record(ctx context.Context) {
 	r.logger.Info("tail saved", "file", path, "audio", r.format.Duration(len(pcm)).Round(10*time.Millisecond))
 }
 
-func (r *Recorder) save(pcm []byte) (string, error) {
+// SaveLast writes the audio that led to a wake-word detection. It never blocks
+// the pipeline: the beep and the command recording continue immediately.
+func (r *Recorder) SaveLast(pcm []byte) {
+	if len(pcm) == 0 {
+		return
+	}
+	go func() {
+		path, err := r.save(pcm, wakePrefix)
+		if err != nil {
+			r.logger.Warn("wake tail recording failed", "error", err)
+			return
+		}
+		r.logger.Info("wake tail saved", "file", path, "audio", r.format.Duration(len(pcm)).Round(10*time.Millisecond))
+	}()
+}
+
+func (r *Recorder) save(pcm []byte, prefix string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if err := os.MkdirAll(r.dir, 0o700); err != nil {
 		return "", fmt.Errorf("create tail directory: %w", err)
 	}
-	name := filePrefix + r.now().Format("20060102-150405.000000000") + ".wav"
+	name := prefix + r.now().Format("20060102-150405.000000000") + ".wav"
 	path := filepath.Join(r.dir, name)
 	if err := writeWAV(path, r.format, pcm); err != nil {
 		return "", fmt.Errorf("write tail: %w", err)
@@ -96,7 +119,7 @@ func (r *Recorder) save(pcm []byte) (string, error) {
 	return path, nil
 }
 
-// prune keeps the newest keep files, by name, which starts with the timestamp.
+// prune keeps the newest keep files, by the timestamp in the name.
 func (r *Recorder) prune() error {
 	entries, err := os.ReadDir(r.dir)
 	if err != nil {
@@ -105,14 +128,16 @@ func (r *Recorder) prune() error {
 	names := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
-		if !entry.IsDir() && strings.HasPrefix(name, filePrefix) && strings.HasSuffix(name, ".wav") {
+		if !entry.IsDir() && tailName(name) && strings.HasSuffix(name, ".wav") {
 			names = append(names, name)
 		}
 	}
 	if len(names) <= r.keep {
 		return nil
 	}
-	sort.Strings(names)
+	sort.Slice(names, func(i, j int) bool {
+		return tailTimestamp(names[i]) < tailTimestamp(names[j])
+	})
 	var errs []error
 	for _, name := range names[:len(names)-r.keep] {
 		if err := os.Remove(filepath.Join(r.dir, name)); err != nil {
@@ -120,6 +145,17 @@ func (r *Recorder) prune() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func tailName(name string) bool {
+	return strings.HasPrefix(name, replyPrefix) || strings.HasPrefix(name, wakePrefix)
+}
+
+func tailTimestamp(name string) string {
+	name = strings.TrimSuffix(name, ".wav")
+	name = strings.TrimPrefix(name, replyPrefix)
+	name = strings.TrimPrefix(name, wakePrefix)
+	return name
 }
 
 // writeWAV writes 16-bit PCM in a RIFF/WAVE container. The file is private,
