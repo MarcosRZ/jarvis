@@ -30,6 +30,16 @@ func newDetector(cfg config.Config, format audio.Format, logger *slog.Logger) *w
 	}, format)
 }
 
+// wakeSource applies the optional high-pass to the microphone before the
+// wake-word detector. Command recording and diagnostic tails keep the raw
+// audio.
+func wakeSource(cfg config.Config, capture *audio.Capture) audio.Source {
+	if cfg.WakeWordHighPass <= 0 {
+		return capture
+	}
+	return audio.NewHighPass(capture, cfg.WakeWordHighPass, capture.Format().SampleRate)
+}
+
 // wakeTest streams the microphone to openWakeWord and prints each detection
 // until Ctrl+C. It uses no other voice service.
 func wakeTest(ctx context.Context, cfg config.Config, stdout io.Writer, logger *slog.Logger) int {
@@ -44,7 +54,8 @@ func wakeTest(ctx context.Context, cfg config.Config, stdout io.Writer, logger *
 	detector := newDetector(cfg, capture.Format(), logger)
 	detections := make(chan wakeword.Detection)
 	done := make(chan error, 1)
-	go func() { done <- detector.Run(ctx, capture, detections) }()
+	input := wakeSource(cfg, capture)
+	go func() { done <- detector.Run(ctx, input, detections) }()
 
 	started := time.Now()
 	fmt.Fprintf(stdout, "say the wake word (%s); press Ctrl+C to stop\n", cfg.WakeWordModel)

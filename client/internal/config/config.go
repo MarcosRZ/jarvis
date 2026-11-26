@@ -31,6 +31,7 @@ const (
 	EnvTailKeep           = "VOICE_TAIL_KEEP"
 	EnvWakeWordModel      = "VOICE_WAKEWORD_MODEL"
 	EnvWakeWordCooldown   = "VOICE_WAKEWORD_COOLDOWN"
+	EnvWakeWordHighPass   = "VOICE_WAKEWORD_HIGHPASS"
 	EnvSTTLanguage        = "VOICE_STT_LANGUAGE"
 	EnvRecordMax          = "VOICE_RECORD_MAX"
 	EnvRecordStartTimeout = "VOICE_RECORD_START_TIMEOUT"
@@ -74,6 +75,7 @@ const (
 	flagTailKeep           = "tail-keep"
 	flagWakeWordModel      = "wakeword-model"
 	flagWakeWordCooldown   = "wakeword-cooldown"
+	flagWakeWordHighPass   = "wakeword-highpass"
 	flagSTTLanguage        = "stt-language"
 	flagRecordMax          = "record-max"
 	flagRecordStartTimeout = "record-start-timeout"
@@ -138,6 +140,9 @@ const (
 	minSpeechLevel = -90.0
 	maxTailSeconds = 10 * time.Second
 	maxTailKeep    = 100
+	// maxWakeWordHighPass bounds the optional wake-word high-pass. 0 turns it
+	// off; 120 Hz is the usual value against mains rumble.
+	maxWakeWordHighPass = 1000.0
 
 	minPort = 1
 	maxPort = 65535
@@ -157,9 +162,12 @@ type Config struct {
 	// TailSeconds is the length of each diagnostic recording.
 	TailSeconds time.Duration
 	// TailKeep is how many diagnostic recordings are kept.
-	TailKeep           int
-	WakeWordModel      string
-	WakeWordCooldown   time.Duration
+	TailKeep         int
+	WakeWordModel    string
+	WakeWordCooldown time.Duration
+	// WakeWordHighPass is a high-pass cutoff in Hz applied only to the wake-word
+	// audio, to reject rumble and mains noise. 0 turns it off.
+	WakeWordHighPass   float64
 	STTLanguage        string
 	RecordMax          time.Duration
 	RecordStartTimeout time.Duration
@@ -301,6 +309,14 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 			cfg.SpeechLevel = level
 		}
 	}
+	if v := getenv(EnvWakeWordHighPass); v != "" {
+		hz, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s=%q: not a number; use 0 for off or a frequency in Hz such as 120", EnvWakeWordHighPass, v))
+		} else {
+			cfg.WakeWordHighPass = hz
+		}
+	}
 	if v := getenv(EnvTailKeep); v != "" {
 		keep, err := strconv.Atoi(v)
 		if err != nil {
@@ -342,6 +358,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.IntVar(&cfg.TailKeep, flagTailKeep, cfg.TailKeep, usage("how many diagnostic tail files to keep, from 1 to 100", EnvTailKeep))
 	fs.StringVar(&cfg.WakeWordModel, flagWakeWordModel, cfg.WakeWordModel, usage("openWakeWord model name; the sensitivity is WAKEWORD_THRESHOLD in server/.env", EnvWakeWordModel))
 	fs.DurationVar(&cfg.WakeWordCooldown, flagWakeWordCooldown, cfg.WakeWordCooldown, usage("ignore detections for this time after a detection, 0 to turn off", EnvWakeWordCooldown))
+	fs.Float64Var(&cfg.WakeWordHighPass, flagWakeWordHighPass, cfg.WakeWordHighPass, usage("high-pass cutoff in Hz for the wake-word audio only, to reject rumble; 0 for off, 120 is a good start", EnvWakeWordHighPass))
 	fs.StringVar(&cfg.STTLanguage, flagSTTLanguage, cfg.STTLanguage, usage("language code of the spoken commands for Whisper", EnvSTTLanguage))
 	fs.DurationVar(&cfg.RecordMax, flagRecordMax, cfg.RecordMax, usage("longest command recording; longer speech is cut, at most 30s", EnvRecordMax))
 	fs.DurationVar(&cfg.RecordStartTimeout, flagRecordStartTimeout, cfg.RecordStartTimeout, usage("stop when no speech starts within this time after the wake word", EnvRecordStartTimeout))
@@ -429,6 +446,9 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	}
 	if cfg.WakeWordCooldown < 0 {
 		errs = append(errs, fmt.Errorf("--%s (%s) %v: use 0 or a greater value", flagWakeWordCooldown, EnvWakeWordCooldown, cfg.WakeWordCooldown))
+	}
+	if cfg.WakeWordHighPass < 0 || cfg.WakeWordHighPass > maxWakeWordHighPass {
+		errs = append(errs, fmt.Errorf("--%s (%s) %v: use 0 to turn it off or a frequency in Hz up to %v", flagWakeWordHighPass, EnvWakeWordHighPass, cfg.WakeWordHighPass, maxWakeWordHighPass))
 	}
 	if cfg.STTLanguage == "" {
 		errs = append(errs, fmt.Errorf("--%s (%s) is empty: use a language code, for example %s", flagSTTLanguage, EnvSTTLanguage, defaultSTTLanguage))
