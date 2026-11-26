@@ -40,6 +40,12 @@ changing it.
 The filter does not replace fixing a ground loop, a bad cable or a vibrating
 mount. It only removes the part of the noise that reaches the wake-word model.
 
+A high-pass is not a universal fix. Removing the hum can expose low-level noise or
+a mechanical resonance that the model then accepts. The pre-roll (`wake-*.wav`)
+is the raw audio, so compare it with the same file after the filter: if the
+filtered version triggers when the raw one does not, lower the cutoff or set
+`VOICE_WAKEWORD_HIGHPASS=0`.
+
 ## Diagnostic tails
 
 The client can save two kinds of 3-second microphone recordings:
