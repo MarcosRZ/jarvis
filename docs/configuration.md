@@ -50,6 +50,8 @@ Every setting is listed with a comment in `client/.env.example` and `server/.env
 | `VOICE_CONNECT_TIMEOUT` | Timeout for connecting to a service |
 | `VOICE_OPERATION_TIMEOUT` | Timeout for one service operation |
 
+See [audio.md](audio.md) for the wake-word high-pass and the diagnostic tails.
+
 ### Language model
 
 | Setting | Use |
