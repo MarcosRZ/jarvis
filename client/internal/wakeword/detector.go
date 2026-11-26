@@ -41,11 +41,12 @@ type Detection struct {
 }
 
 type Config struct {
-	Addr     string
-	Model    string
-	Cooldown time.Duration
-	Timeouts wyoming.Timeouts
-	Logger   *slog.Logger
+	Addr       string
+	Model      string
+	Cooldown   time.Duration
+	SessionMax time.Duration
+	Timeouts   wyoming.Timeouts
+	Logger     *slog.Logger
 }
 
 type Detector struct {
@@ -82,7 +83,21 @@ func New(cfg Config, format audio.Format) *Detector {
 func (d *Detector) Run(ctx context.Context, src audio.Source, out chan<- Detection) error {
 	delay := d.retryMin
 	for {
-		streamed, err := d.session(ctx, src, out)
+		sessionCtx := ctx
+		cancel := func() {}
+		if d.cfg.SessionMax > 0 {
+			sessionCtx, cancel = context.WithTimeout(ctx, d.cfg.SessionMax)
+		}
+		streamed, err := d.session(sessionCtx, src, out)
+		expired := sessionCtx.Err() != nil && ctx.Err() == nil
+		cancel()
+		if expired {
+			// Reset the service's streaming state before it drifts into a
+			// false detection. Audio captured during the reconnect stays in the
+			// source ring.
+			d.cfg.Logger.Debug("wake-word session reset")
+			continue
+		}
 		var srcErr *sourceError
 		switch {
 		case ctx.Err() != nil:

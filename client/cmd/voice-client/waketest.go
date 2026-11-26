@@ -22,11 +22,12 @@ func timeouts(cfg config.Config) wyoming.Timeouts {
 
 func newDetector(cfg config.Config, format audio.Format, logger *slog.Logger) *wakeword.Detector {
 	return wakeword.New(wakeword.Config{
-		Addr:     cfg.WakeWordAddr,
-		Model:    cfg.WakeWordModel,
-		Cooldown: cfg.WakeWordCooldown,
-		Timeouts: timeouts(cfg),
-		Logger:   logger,
+		Addr:       cfg.WakeWordAddr,
+		Model:      cfg.WakeWordModel,
+		Cooldown:   cfg.WakeWordCooldown,
+		SessionMax: cfg.WakeWordSessionMax,
+		Timeouts:   timeouts(cfg),
+		Logger:     logger,
 	}, format)
 }
 

@@ -31,6 +31,7 @@ const (
 	EnvTailKeep           = "VOICE_TAIL_KEEP"
 	EnvWakeWordModel      = "VOICE_WAKEWORD_MODEL"
 	EnvWakeWordCooldown   = "VOICE_WAKEWORD_COOLDOWN"
+	EnvWakeWordSessionMax = "VOICE_WAKEWORD_SESSION_MAX"
 	EnvWakeWordHighPass   = "VOICE_WAKEWORD_HIGHPASS"
 	EnvSTTLanguage        = "VOICE_STT_LANGUAGE"
 	EnvRecordMax          = "VOICE_RECORD_MAX"
@@ -75,6 +76,7 @@ const (
 	flagTailKeep           = "tail-keep"
 	flagWakeWordModel      = "wakeword-model"
 	flagWakeWordCooldown   = "wakeword-cooldown"
+	flagWakeWordSessionMax = "wakeword-session-max"
 	flagWakeWordHighPass   = "wakeword-highpass"
 	flagSTTLanguage        = "stt-language"
 	flagRecordMax          = "record-max"
@@ -143,6 +145,8 @@ const (
 	// maxWakeWordHighPass bounds the optional wake-word high-pass. 0 turns it
 	// off; 120 Hz is the usual value against mains rumble.
 	maxWakeWordHighPass = 1000.0
+	// maxWakeWordSessionMax bounds the periodic wake-word reconnect.
+	maxWakeWordSessionMax = 24 * time.Hour
 
 	minPort = 1
 	maxPort = 65535
@@ -165,6 +169,9 @@ type Config struct {
 	TailKeep         int
 	WakeWordModel    string
 	WakeWordCooldown time.Duration
+	// WakeWordSessionMax reconnects the wake-word service after this time, to
+	// reset its streaming state. 0 keeps the connection for as long as needed.
+	WakeWordSessionMax time.Duration
 	// WakeWordHighPass is a high-pass cutoff in Hz applied only to the wake-word
 	// audio, to reject rumble and mains noise. 0 turns it off.
 	WakeWordHighPass   float64
@@ -284,6 +291,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		target *time.Duration
 	}{
 		{EnvWakeWordCooldown, &cfg.WakeWordCooldown},
+		{EnvWakeWordSessionMax, &cfg.WakeWordSessionMax},
 		{EnvRecordMax, &cfg.RecordMax},
 		{EnvRecordStartTimeout, &cfg.RecordStartTimeout},
 		{EnvRecordEndSilence, &cfg.RecordEndSilence},
@@ -358,6 +366,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.IntVar(&cfg.TailKeep, flagTailKeep, cfg.TailKeep, usage("how many diagnostic tail files to keep, from 1 to 100", EnvTailKeep))
 	fs.StringVar(&cfg.WakeWordModel, flagWakeWordModel, cfg.WakeWordModel, usage("openWakeWord model name; the sensitivity is WAKEWORD_THRESHOLD in server/.env", EnvWakeWordModel))
 	fs.DurationVar(&cfg.WakeWordCooldown, flagWakeWordCooldown, cfg.WakeWordCooldown, usage("ignore detections for this time after a detection, 0 to turn off", EnvWakeWordCooldown))
+	fs.DurationVar(&cfg.WakeWordSessionMax, flagWakeWordSessionMax, cfg.WakeWordSessionMax, usage("reconnect the wake-word service after this time to reset its streaming state; 0 keeps the connection", EnvWakeWordSessionMax))
 	fs.Float64Var(&cfg.WakeWordHighPass, flagWakeWordHighPass, cfg.WakeWordHighPass, usage("high-pass cutoff in Hz for the wake-word audio only, to reject rumble; 0 for off, 120 is a good start", EnvWakeWordHighPass))
 	fs.StringVar(&cfg.STTLanguage, flagSTTLanguage, cfg.STTLanguage, usage("language code of the spoken commands for Whisper", EnvSTTLanguage))
 	fs.DurationVar(&cfg.RecordMax, flagRecordMax, cfg.RecordMax, usage("longest command recording; longer speech is cut, at most 30s", EnvRecordMax))
@@ -446,6 +455,9 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	}
 	if cfg.WakeWordCooldown < 0 {
 		errs = append(errs, fmt.Errorf("--%s (%s) %v: use 0 or a greater value", flagWakeWordCooldown, EnvWakeWordCooldown, cfg.WakeWordCooldown))
+	}
+	if cfg.WakeWordSessionMax < 0 || cfg.WakeWordSessionMax > maxWakeWordSessionMax {
+		errs = append(errs, fmt.Errorf("--%s (%s) %v: use 0 to keep the connection or a value up to %v", flagWakeWordSessionMax, EnvWakeWordSessionMax, cfg.WakeWordSessionMax, maxWakeWordSessionMax))
 	}
 	if cfg.WakeWordHighPass < 0 || cfg.WakeWordHighPass > maxWakeWordHighPass {
 		errs = append(errs, fmt.Errorf("--%s (%s) %v: use 0 to turn it off or a frequency in Hz up to %v", flagWakeWordHighPass, EnvWakeWordHighPass, cfg.WakeWordHighPass, maxWakeWordHighPass))

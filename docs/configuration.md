@@ -42,6 +42,7 @@ Every setting is listed with a comment in `client/.env.example` and `server/.env
 | `VOICE_TTS_SPEAKER` | Speaker for multi-speaker voices |
 | `VOICE_WAKEWORD_MODEL` | Wake-word model, default `alexa` |
 | `VOICE_WAKEWORD_COOLDOWN` | Ignore repeat detections for this time |
+| `VOICE_WAKEWORD_SESSION_MAX` | Reconnect the wake-word service after this time to reset its streaming state; `0` keeps the connection. `2m` is a useful test |
 | `VOICE_WAKEWORD_HIGHPASS` | High-pass cutoff in Hz for the wake-word audio only; `0` off. `120` is a starting point, but a filter can expose other noise, so compare raw and filtered pre-rolls |
 | `VOICE_RECORD_MAX` | Maximum recording length |
 | `VOICE_RECORD_START_TIMEOUT` | Time to wait for speech after the beep |

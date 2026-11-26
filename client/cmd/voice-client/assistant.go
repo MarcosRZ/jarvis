@@ -176,7 +176,7 @@ func runAssistant(ctx context.Context, cfg config.Config, logger *slog.Logger) i
 		}
 		logger.Info("text input", "addr", cfg.TextAddr)
 	}
-	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled, "keep_output_awake", keepAlive != nil, "tail_dir", cfg.TailDir, "wake_word_highpass", cfg.WakeWordHighPass)
+	logger.Info("assistant started", "version", version, "wake_word_model", cfg.WakeWordModel, "voice", cfg.TTSVoice, "config_file", cfg.ConfigFile, "beep", cfg.BeepEnabled, "keep_output_awake", keepAlive != nil, "tail_dir", cfg.TailDir, "wake_word_highpass", cfg.WakeWordHighPass, "wake_word_session_max", cfg.WakeWordSessionMax)
 	return stopCode(p.Run(ctx), logger)
 }
 
