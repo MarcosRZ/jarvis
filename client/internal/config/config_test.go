@@ -46,6 +46,7 @@ func TestLoadDefaults(t *testing.T) {
 		WakeWordAddr:       "127.0.0.1:10400",
 		STTAddr:            "127.0.0.1:10300",
 		TTSAddr:            "127.0.0.1:10200",
+		KeepOutputAwake:    true,
 		WakeWordModel:      "alexa",
 		WakeWordCooldown:   2 * time.Second,
 		STTLanguage:        "es",
@@ -86,6 +87,7 @@ func TestLoadPrecedence(t *testing.T) {
 		EnvTTSAddr:            "10.0.0.3:3",
 		EnvInputDevice:        "env mic",
 		EnvOutputDevice:       "env speaker",
+		EnvKeepOutputAwake:    "false",
 		EnvWakeWordModel:      "okay_nabu",
 		EnvWakeWordCooldown:   "5s",
 		EnvSTTLanguage:        "ca",
@@ -118,6 +120,7 @@ func TestLoadPrecedence(t *testing.T) {
 		TTSAddr:            "10.0.0.3:3",
 		InputDevice:        "flag mic",
 		OutputDevice:       "env speaker",
+		KeepOutputAwake:    false,
 		WakeWordModel:      "okay_nabu",
 		WakeWordCooldown:   0,
 		STTLanguage:        "ca",
@@ -151,6 +154,23 @@ func TestLoadPrecedence(t *testing.T) {
 	}
 	if !reflect.DeepEqual(cfg, want) {
 		t.Fatalf("got %+v, want %+v", cfg, want)
+	}
+}
+
+func TestLoadKeepOutputAwake(t *testing.T) {
+	cfg, err := load([]string{"--keep-output-awake=false"}, envFrom(nil), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.KeepOutputAwake {
+		t.Error("flag false: KeepOutputAwake true")
+	}
+	cfg, err = load([]string{"--keep-output-awake=true"}, envFrom(map[string]string{EnvKeepOutputAwake: "false"}), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.KeepOutputAwake {
+		t.Error("flag true over env false: KeepOutputAwake false")
 	}
 }
 
@@ -205,6 +225,7 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"log web page address", []string{"--log-http-addr", "8080"}, nil, []string{"--log-http-addr", "use host:port"}},
 		{"text input address", []string{"--text-addr", "8082"}, nil, []string{"--text-addr", "use host:port"}},
 		{"log transcripts env not a bool", nil, map[string]string{EnvLogTranscripts: "sí"}, []string{EnvLogTranscripts, "use true or false"}},
+		{"keep output awake env not a bool", nil, map[string]string{EnvKeepOutputAwake: "sí"}, []string{EnvKeepOutputAwake, "use true or false"}},
 		{"log level flag unknown", []string{"--log-level", "loud"}, nil, []string{"log-level"}},
 		{"connect timeout zero", []string{"--connect-timeout", "0s"}, nil, []string{"--connect-timeout", EnvConnectTimeout}},
 		{"operation timeout negative", []string{"--operation-timeout", "-1s"}, nil, []string{"--operation-timeout", EnvOperationTimeout}},

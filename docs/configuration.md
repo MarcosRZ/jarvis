@@ -33,6 +33,7 @@ Every setting is listed with a comment in `client/.env.example` and `server/.env
 | `VOICE_TTS_ADDR` | Piper address, default `127.0.0.1:10200` |
 | `VOICE_INPUT_DEVICE` | Microphone name; empty uses the system default |
 | `VOICE_OUTPUT_DEVICE` | Speaker name; empty uses the system default |
+| `VOICE_KEEP_OUTPUT_AWAKE` | Hold the output open while the assistant runs, so an idle Bluetooth sink does not swallow the beep; default `true` |
 | `VOICE_STT_LANGUAGE` | Recognition language code |
 | `VOICE_TTS_VOICE` | Piper voice name for your language |
 | `VOICE_TTS_SPEAKER` | Speaker for multi-speaker voices |

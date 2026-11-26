@@ -25,6 +25,7 @@ const (
 	EnvTTSAddr            = "VOICE_TTS_ADDR"
 	EnvInputDevice        = "VOICE_INPUT_DEVICE"
 	EnvOutputDevice       = "VOICE_OUTPUT_DEVICE"
+	EnvKeepOutputAwake    = "VOICE_KEEP_OUTPUT_AWAKE"
 	EnvWakeWordModel      = "VOICE_WAKEWORD_MODEL"
 	EnvWakeWordCooldown   = "VOICE_WAKEWORD_COOLDOWN"
 	EnvSTTLanguage        = "VOICE_STT_LANGUAGE"
@@ -64,6 +65,7 @@ const (
 	flagTTSAddr            = "tts-addr"
 	flagInputDevice        = "input-device"
 	flagOutputDevice       = "output-device"
+	flagKeepOutputAwake    = "keep-output-awake"
 	flagWakeWordModel      = "wakeword-model"
 	flagWakeWordCooldown   = "wakeword-cooldown"
 	flagSTTLanguage        = "stt-language"
@@ -148,6 +150,9 @@ type Config struct {
 	SpeechLevel        float64
 	TTSVoice           string
 	TTSSpeaker         string
+	// KeepOutputAwake holds the output device open while the assistant runs, so
+	// that an idle Bluetooth sink does not suspend and swallow the beep.
+	KeepOutputAwake bool
 	// HAURL is empty when no Home Assistant is used.
 	HAURL   string
 	HAToken string
@@ -209,6 +214,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		TTSAddr:            envOr(getenv, EnvTTSAddr, defaultTTSAddr),
 		InputDevice:        getenv(EnvInputDevice),
 		OutputDevice:       getenv(EnvOutputDevice),
+		KeepOutputAwake:    true,
 		WakeWordModel:      envOr(getenv, EnvWakeWordModel, defaultWakeWordModel),
 		WakeWordCooldown:   defaultWakeWordCooldown,
 		STTLanguage:        envOr(getenv, EnvSTTLanguage, defaultSTTLanguage),
@@ -282,6 +288,14 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 			cfg.LogTranscripts = on
 		}
 	}
+	if v := getenv(EnvKeepOutputAwake); v != "" {
+		on, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s=%q: use true or false", EnvKeepOutputAwake, v))
+		} else {
+			cfg.KeepOutputAwake = on
+		}
+	}
 	if v := getenv(EnvLogLevel); v != "" {
 		if err := cfg.LogLevel.UnmarshalText([]byte(v)); err != nil {
 			errs = append(errs, fmt.Errorf("%s=%q: use debug, info, warn or error", EnvLogLevel, v))
@@ -293,6 +307,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.StringVar(&cfg.TTSAddr, flagTTSAddr, cfg.TTSAddr, usage("Piper service host:port", EnvTTSAddr))
 	fs.StringVar(&cfg.InputDevice, flagInputDevice, cfg.InputDevice, usage(`microphone name as "devices" shows it, empty for the system default`, EnvInputDevice))
 	fs.StringVar(&cfg.OutputDevice, flagOutputDevice, cfg.OutputDevice, usage(`speaker name as "devices" shows it, empty for the system default`, EnvOutputDevice))
+	fs.BoolVar(&cfg.KeepOutputAwake, flagKeepOutputAwake, cfg.KeepOutputAwake, usage("hold the output device open while the assistant runs, so an idle Bluetooth sink does not swallow the beep", EnvKeepOutputAwake))
 	fs.StringVar(&cfg.WakeWordModel, flagWakeWordModel, cfg.WakeWordModel, usage("openWakeWord model name; the sensitivity is WAKEWORD_THRESHOLD in server/.env", EnvWakeWordModel))
 	fs.DurationVar(&cfg.WakeWordCooldown, flagWakeWordCooldown, cfg.WakeWordCooldown, usage("ignore detections for this time after a detection, 0 to turn off", EnvWakeWordCooldown))
 	fs.StringVar(&cfg.STTLanguage, flagSTTLanguage, cfg.STTLanguage, usage("language code of the spoken commands for Whisper", EnvSTTLanguage))
