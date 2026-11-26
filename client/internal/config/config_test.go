@@ -47,6 +47,8 @@ func TestLoadDefaults(t *testing.T) {
 		STTAddr:            "127.0.0.1:10300",
 		TTSAddr:            "127.0.0.1:10200",
 		KeepOutputAwake:    true,
+		TailSeconds:        3 * time.Second,
+		TailKeep:           10,
 		WakeWordModel:      "alexa",
 		WakeWordCooldown:   2 * time.Second,
 		STTLanguage:        "es",
@@ -88,6 +90,9 @@ func TestLoadPrecedence(t *testing.T) {
 		EnvInputDevice:        "env mic",
 		EnvOutputDevice:       "env speaker",
 		EnvKeepOutputAwake:    "false",
+		EnvTailDir:            " /tmp/tails ",
+		EnvTailSeconds:        "5s",
+		EnvTailKeep:           "7",
 		EnvWakeWordModel:      "okay_nabu",
 		EnvWakeWordCooldown:   "5s",
 		EnvSTTLanguage:        "ca",
@@ -121,6 +126,9 @@ func TestLoadPrecedence(t *testing.T) {
 		InputDevice:        "flag mic",
 		OutputDevice:       "env speaker",
 		KeepOutputAwake:    false,
+		TailDir:            "/tmp/tails",
+		TailSeconds:        5 * time.Second,
+		TailKeep:           7,
 		WakeWordModel:      "okay_nabu",
 		WakeWordCooldown:   0,
 		STTLanguage:        "ca",
@@ -171,6 +179,26 @@ func TestLoadKeepOutputAwake(t *testing.T) {
 	}
 	if !cfg.KeepOutputAwake {
 		t.Error("flag true over env false: KeepOutputAwake false")
+	}
+}
+
+func TestLoadTailRecording(t *testing.T) {
+	for _, value := range []string{"off", "none", "OFF"} {
+		cfg, err := load(nil, envFrom(map[string]string{EnvTailDir: value}), io.Discard)
+		if err != nil {
+			t.Fatalf("Load %q: %v", value, err)
+		}
+		if cfg.TailDir != "" {
+			t.Errorf("Load %q: TailDir %q, want empty", value, cfg.TailDir)
+		}
+	}
+	cfg, err := load([]string{"--tail-dir", " /tmp/tails ", "--tail-seconds", "2s", "--tail-keep", "3"},
+		envFrom(map[string]string{EnvTailDir: "/env/tails", EnvTailSeconds: "5s", EnvTailKeep: "7"}), io.Discard)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.TailDir != "/tmp/tails" || cfg.TailSeconds != 2*time.Second || cfg.TailKeep != 3 {
+		t.Errorf("tail %q %v %d, want /tmp/tails 2s 3", cfg.TailDir, cfg.TailSeconds, cfg.TailKeep)
 	}
 }
 
@@ -226,6 +254,11 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"text input address", []string{"--text-addr", "8082"}, nil, []string{"--text-addr", "use host:port"}},
 		{"log transcripts env not a bool", nil, map[string]string{EnvLogTranscripts: "sí"}, []string{EnvLogTranscripts, "use true or false"}},
 		{"keep output awake env not a bool", nil, map[string]string{EnvKeepOutputAwake: "sí"}, []string{EnvKeepOutputAwake, "use true or false"}},
+		{"tail seconds zero", []string{"--tail-seconds", "0s"}, nil, []string{"--tail-seconds", EnvTailSeconds}},
+		{"tail seconds too large", []string{"--tail-seconds", "11s"}, nil, []string{"--tail-seconds", EnvTailSeconds}},
+		{"tail keep zero", []string{"--tail-keep", "0"}, nil, []string{"--tail-keep", EnvTailKeep}},
+		{"tail keep too large", []string{"--tail-keep", "101"}, nil, []string{"--tail-keep", EnvTailKeep}},
+		{"tail keep env not a number", nil, map[string]string{EnvTailKeep: "diez"}, []string{EnvTailKeep, "whole number"}},
 		{"log level flag unknown", []string{"--log-level", "loud"}, nil, []string{"log-level"}},
 		{"connect timeout zero", []string{"--connect-timeout", "0s"}, nil, []string{"--connect-timeout", EnvConnectTimeout}},
 		{"operation timeout negative", []string{"--operation-timeout", "-1s"}, nil, []string{"--operation-timeout", EnvOperationTimeout}},

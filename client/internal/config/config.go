@@ -26,6 +26,9 @@ const (
 	EnvInputDevice        = "VOICE_INPUT_DEVICE"
 	EnvOutputDevice       = "VOICE_OUTPUT_DEVICE"
 	EnvKeepOutputAwake    = "VOICE_KEEP_OUTPUT_AWAKE"
+	EnvTailDir            = "VOICE_TAIL_DIR"
+	EnvTailSeconds        = "VOICE_TAIL_SECONDS"
+	EnvTailKeep           = "VOICE_TAIL_KEEP"
 	EnvWakeWordModel      = "VOICE_WAKEWORD_MODEL"
 	EnvWakeWordCooldown   = "VOICE_WAKEWORD_COOLDOWN"
 	EnvSTTLanguage        = "VOICE_STT_LANGUAGE"
@@ -66,6 +69,9 @@ const (
 	flagInputDevice        = "input-device"
 	flagOutputDevice       = "output-device"
 	flagKeepOutputAwake    = "keep-output-awake"
+	flagTailDir            = "tail-dir"
+	flagTailSeconds        = "tail-seconds"
+	flagTailKeep           = "tail-keep"
 	flagWakeWordModel      = "wakeword-model"
 	flagWakeWordCooldown   = "wakeword-cooldown"
 	flagSTTLanguage        = "stt-language"
@@ -124,10 +130,14 @@ const (
 	defaultLogLevel           = slog.LevelInfo
 	defaultConnectTimeout     = 3 * time.Second
 	defaultOperationTimeout   = 30 * time.Second
+	defaultTailSeconds        = 3 * time.Second
+	defaultTailKeep           = 10
 
 	// Whisper transcribes audio in windows of 30 s.
 	maxRecordMax   = 30 * time.Second
 	minSpeechLevel = -90.0
+	maxTailSeconds = 10 * time.Second
+	maxTailKeep    = 100
 
 	minPort = 1
 	maxPort = 65535
@@ -136,11 +146,18 @@ const (
 // Config has no wake-word threshold: openWakeWord applies only its server
 // setting (WAKEWORD_THRESHOLD in server/.env), and the protocol cannot change it.
 type Config struct {
-	WakeWordAddr       string
-	STTAddr            string
-	TTSAddr            string
-	InputDevice        string
-	OutputDevice       string
+	WakeWordAddr string
+	STTAddr      string
+	TTSAddr      string
+	InputDevice  string
+	OutputDevice string
+	// TailDir saves microphone audio after each reply for diagnostics. Empty
+	// turns the recordings off.
+	TailDir string
+	// TailSeconds is the length of each diagnostic recording.
+	TailSeconds time.Duration
+	// TailKeep is how many diagnostic recordings are kept.
+	TailKeep           int
 	WakeWordModel      string
 	WakeWordCooldown   time.Duration
 	STTLanguage        string
@@ -215,6 +232,9 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		InputDevice:        getenv(EnvInputDevice),
 		OutputDevice:       getenv(EnvOutputDevice),
 		KeepOutputAwake:    true,
+		TailDir:            getenv(EnvTailDir),
+		TailSeconds:        defaultTailSeconds,
+		TailKeep:           defaultTailKeep,
 		WakeWordModel:      envOr(getenv, EnvWakeWordModel, defaultWakeWordModel),
 		WakeWordCooldown:   defaultWakeWordCooldown,
 		STTLanguage:        envOr(getenv, EnvSTTLanguage, defaultSTTLanguage),
@@ -262,6 +282,7 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		{EnvConnectTimeout, &cfg.ConnectTimeout},
 		{EnvOperationTimeout, &cfg.OperationTimeout},
 		{EnvLLMTimeout, &cfg.LLMTimeout},
+		{EnvTailSeconds, &cfg.TailSeconds},
 	} {
 		if v := getenv(d.env); v != "" {
 			parsed, err := time.ParseDuration(v)
@@ -278,6 +299,14 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 			errs = append(errs, fmt.Errorf("%s=%q: not a number; use a level in dBFS such as -40", EnvSpeechLevel, v))
 		} else {
 			cfg.SpeechLevel = level
+		}
+	}
+	if v := getenv(EnvTailKeep); v != "" {
+		keep, err := strconv.Atoi(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s=%q: use a whole number from 1 to %d", EnvTailKeep, v, maxTailKeep))
+		} else {
+			cfg.TailKeep = keep
 		}
 	}
 	if v := getenv(EnvLogTranscripts); v != "" {
@@ -308,6 +337,9 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	fs.StringVar(&cfg.InputDevice, flagInputDevice, cfg.InputDevice, usage(`microphone name as "devices" shows it, empty for the system default`, EnvInputDevice))
 	fs.StringVar(&cfg.OutputDevice, flagOutputDevice, cfg.OutputDevice, usage(`speaker name as "devices" shows it, empty for the system default`, EnvOutputDevice))
 	fs.BoolVar(&cfg.KeepOutputAwake, flagKeepOutputAwake, cfg.KeepOutputAwake, usage("hold the output device open while the assistant runs, so an idle Bluetooth sink does not swallow the beep", EnvKeepOutputAwake))
+	fs.StringVar(&cfg.TailDir, flagTailDir, cfg.TailDir, usage("directory for diagnostic microphone tails after each reply, with only the newest files kept; empty for off", EnvTailDir))
+	fs.DurationVar(&cfg.TailSeconds, flagTailSeconds, cfg.TailSeconds, usage("length of each diagnostic tail, greater than 0 and at most 10s", EnvTailSeconds))
+	fs.IntVar(&cfg.TailKeep, flagTailKeep, cfg.TailKeep, usage("how many diagnostic tail files to keep, from 1 to 100", EnvTailKeep))
 	fs.StringVar(&cfg.WakeWordModel, flagWakeWordModel, cfg.WakeWordModel, usage("openWakeWord model name; the sensitivity is WAKEWORD_THRESHOLD in server/.env", EnvWakeWordModel))
 	fs.DurationVar(&cfg.WakeWordCooldown, flagWakeWordCooldown, cfg.WakeWordCooldown, usage("ignore detections for this time after a detection, 0 to turn off", EnvWakeWordCooldown))
 	fs.StringVar(&cfg.STTLanguage, flagSTTLanguage, cfg.STTLanguage, usage("language code of the spoken commands for Whisper", EnvSTTLanguage))
@@ -348,6 +380,10 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 		errs = append(errs, fmt.Errorf("unexpected argument %q", fs.Arg(0)))
 	}
 	cfg.Room = strings.TrimSpace(cfg.Room)
+	cfg.TailDir = strings.TrimSpace(cfg.TailDir)
+	if strings.EqualFold(cfg.TailDir, "off") || strings.EqualFold(cfg.TailDir, "none") {
+		cfg.TailDir = ""
+	}
 	cfg.LLMModel = strings.TrimSpace(cfg.LLMModel)
 	cfg.LLMAPIKey = strings.TrimSpace(cfg.LLMAPIKey)
 	cfg.NewsURL = strings.TrimSpace(cfg.NewsURL)
@@ -448,6 +484,12 @@ func Load(fs *flag.FlagSet, args []string, getenv func(string) string) (Config, 
 	}
 	if cfg.OperationTimeout <= 0 {
 		errs = append(errs, fmt.Errorf("--%s (%s) %v: use a value greater than 0", flagOperationTimeout, EnvOperationTimeout, cfg.OperationTimeout))
+	}
+	if cfg.TailSeconds <= 0 || cfg.TailSeconds > maxTailSeconds {
+		errs = append(errs, fmt.Errorf("--%s (%s) %v: use a value greater than 0 and at most %v", flagTailSeconds, EnvTailSeconds, cfg.TailSeconds, maxTailSeconds))
+	}
+	if cfg.TailKeep < 1 || cfg.TailKeep > maxTailKeep {
+		errs = append(errs, fmt.Errorf("--%s (%s) %d: use a value from 1 to %d", flagTailKeep, EnvTailKeep, cfg.TailKeep, maxTailKeep))
 	}
 	if cfg.ConfigFile != "" {
 		errs = append(errs, loadFile(cfg.ConfigFile, &cfg))

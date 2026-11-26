@@ -34,6 +34,9 @@ Every setting is listed with a comment in `client/.env.example` and `server/.env
 | `VOICE_INPUT_DEVICE` | Microphone name; empty uses the system default |
 | `VOICE_OUTPUT_DEVICE` | Speaker name; empty uses the system default |
 | `VOICE_KEEP_OUTPUT_AWAKE` | Hold the output open while the assistant runs, so an idle Bluetooth sink does not swallow the beep; default `true` |
+| `VOICE_TAIL_DIR` | Directory for diagnostic microphone recordings after each reply; empty turns them off |
+| `VOICE_TAIL_SECONDS` | Length of each diagnostic recording, default `3s` |
+| `VOICE_TAIL_KEEP` | Number of diagnostic recordings kept, default `10` |
 | `VOICE_STT_LANGUAGE` | Recognition language code |
 | `VOICE_TTS_VOICE` | Piper voice name for your language |
 | `VOICE_TTS_SPEAKER` | Speaker for multi-speaker voices |
