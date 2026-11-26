@@ -72,6 +72,27 @@ func TestRingPopReturnsWholeFramesOnly(t *testing.T) {
 	}
 }
 
+func TestRingSnapshotKeepsNewestWithoutConsuming(t *testing.T) {
+	r := NewRing(6, frame)
+	r.Push([]byte{1, 2, 3, 4, 5, 6, 7, 8}) // keeps 3 4 5 6 7 8
+
+	if got, want := r.Snapshot(4), []byte{5, 6, 7, 8}; !bytes.Equal(got, want) {
+		t.Fatalf("Snapshot(4) = %v, want %v", got, want)
+	}
+	if r.Len() != 6 {
+		t.Fatalf("Len() = %d after Snapshot, want 6", r.Len())
+	}
+	if got, want := r.Snapshot(100), []byte{3, 4, 5, 6, 7, 8}; !bytes.Equal(got, want) {
+		t.Fatalf("Snapshot(100) = %v, want %v", got, want)
+	}
+	if got, want := r.Snapshot(3), []byte{7, 8}; !bytes.Equal(got, want) {
+		t.Fatalf("Snapshot(3) = %v, want %v (whole frames)", got, want)
+	}
+	if got := r.Snapshot(0); got != nil {
+		t.Fatalf("Snapshot(0) = %v, want nil", got)
+	}
+}
+
 func TestRingReadWaitsForData(t *testing.T) {
 	r := NewRing(8, frame)
 	go func() {

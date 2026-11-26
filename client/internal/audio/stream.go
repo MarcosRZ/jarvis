@@ -118,6 +118,12 @@ func (c *Capture) Tail(ctx context.Context, d time.Duration) ([]byte, error) {
 	return pcm, nil
 }
 
+// Last returns the newest d of captured audio without consuming it. It is used
+// to save the audio that led to a wake-word detection.
+func (c *Capture) Last(d time.Duration) []byte {
+	return c.tap.Snapshot(c.format.BytesFor(d))
+}
+
 // Close stops the device and closes both capture rings.
 func (c *Capture) Close() {
 	c.stream.Close()

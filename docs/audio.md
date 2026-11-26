@@ -40,22 +40,34 @@ changing it.
 The filter does not replace fixing a ground loop, a bad cable or a vibrating
 mount. It only removes the part of the noise that reaches the wake-word model.
 
+A high-pass is not a universal fix. Removing the hum can expose low-level noise or
+a mechanical resonance that the model then accepts. The pre-roll (`wake-*.wav`)
+is the raw audio, so compare it with the same file after the filter: if the
+filtered version triggers when the raw one does not, lower the cutoff or set
+`VOICE_WAKEWORD_HIGHPASS=0`.
+
 ## Diagnostic tails
 
-The client can save the 3 seconds of microphone audio after every spoken reply.
-This is the window where a false wake usually happens.
+The client can save two kinds of 3-second microphone recordings:
+
+- `tail-...wav`: after every spoken reply.
+- `wake-...wav`: the audio **before** every wake-word detection. This is the one
+  that catches a false wake during a long silence, because the post-reply tail
+  starts only after the reply that follows it.
 
 | Setting | Default | Use |
 |---|---|---|
 | `VOICE_TAIL_DIR` | empty | Directory for the WAV files. Empty turns the recordings off. For example `client/data/tails`. |
-| `VOICE_TAIL_SECONDS` | `3s` | Length of each tail, greater than 0 and at most 10 s. |
-| `VOICE_TAIL_KEEP` | `10` | Number of files kept, from 1 to 100. Older files are deleted after every new one. |
+| `VOICE_TAIL_SECONDS` | `3s` | Length of each recording, greater than 0 and at most 10 s. |
+| `VOICE_TAIL_KEEP` | `10` | Total number of files kept, from 1 to 100. Older files are deleted after every new one. |
 
 The recorder uses a second ring fed by the same microphone callback, so it never
-takes audio from the wake word or the command. A tail that overlaps the next
-reply is skipped rather than mixing two recordings. Files are written with mode
-`0600` in a directory created with mode `0700`; `client/data/` is git-ignored.
-With the defaults, ten files use about 1 MB.
+takes audio from the wake word or the command. The pre-roll is a snapshot of
+that ring taken as soon as the detector fires, before the beep. A post-reply
+tail that overlaps the next reply is skipped rather than mixing two recordings;
+the pre-roll is always saved. Files are written with mode `0600` in a directory
+created with mode `0700`; `client/data/` is git-ignored. With the defaults, ten
+files use about 1 MB.
 
 The recordings contain room audio and can include private speech. Keep the
 directory local, delete it when the investigation ends, and leave
@@ -63,15 +75,16 @@ directory local, delete it when the investigation ends, and leave
 
 ### Checking a false wake
 
-1. Find the reply in the client log and the `tail saved` line that follows it.
-2. Play the WAV, for example `pw-play client/data/tails/tail-....wav`.
+1. For a false wake, use the `wake tail saved` line that appears just after the
+   detection and before the beep. For a reply, use the `tail saved` line.
+2. Play the WAV, for example `pw-play client/data/tails/wake-....wav`.
 3. Optionally send the same file to the wake-word service and check whether it
    detects the wake word again. A file that triggers the service while Whisper
    transcribes nothing is a false positive from noise, not from speech.
 4. Inspect the spectrum of the quiet part before the beep. A strong peak at
    50 Hz and its harmonics points to mains hum; a broad rise at low frequencies
    points to rumble or vibration.
-5. Apply the high-pass, or fix the mount/cable, and compare a new tail.
+5. Apply the high-pass, or fix the mount/cable, and compare a new recording.
 
 On one affected setup the raw tail triggered `alexa` at 1360 ms without any
 speech; the 50 Hz hum was 3 dB lower after suspending the microphone, but the

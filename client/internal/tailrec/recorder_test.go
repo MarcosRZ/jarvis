@@ -73,7 +73,11 @@ func TestWriteWAV(t *testing.T) {
 func TestPruneKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	for i := range 12 {
-		name := fmt.Sprintf("tail-20260101-0000%02d.000000000.wav", i)
+		prefix := replyPrefix
+		if i%2 == 1 {
+			prefix = wakePrefix
+		}
+		name := fmt.Sprintf("%s20260101-0000%02d.000000000.wav", prefix, i)
 		if err := os.WriteFile(filepath.Join(dir, name), nil, 0o600); err != nil {
 			t.Fatalf("write %s: %v", name, err)
 		}
@@ -92,18 +96,18 @@ func TestPruneKeepsNewest(t *testing.T) {
 	}
 	var tails []string
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), filePrefix) {
+		if tailName(entry.Name()) {
 			tails = append(tails, entry.Name())
 		}
 	}
 	if len(tails) != 10 {
 		t.Fatalf("%d tails, want 10: %v", len(tails), tails)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "tail-20260101-000000.000000000.wav")); !os.IsNotExist(err) {
-		t.Errorf("oldest tail still exists")
+	if _, err := os.Stat(filepath.Join(dir, replyPrefix+"20260101-000000.000000000.wav")); !os.IsNotExist(err) {
+		t.Errorf("oldest reply tail still exists")
 	}
-	if _, err := os.Stat(filepath.Join(dir, "tail-20260101-000011.000000000.wav")); err != nil {
-		t.Errorf("newest tail missing: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, wakePrefix+"20260101-000011.000000000.wav")); err != nil {
+		t.Errorf("newest wake tail missing: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "notes.txt")); err != nil {
 		t.Errorf("unrelated file removed: %v", err)
@@ -139,6 +143,40 @@ func TestStartSavesOneTail(t *testing.T) {
 	}
 	if path == "" {
 		t.Fatal("tail file was not created")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(data[44:], pcm) {
+		t.Errorf("PCM %x, want %x", data[44:], pcm)
+	}
+}
+
+func TestSaveLastSavesWakeTail(t *testing.T) {
+	dir := t.TempDir()
+	pcm := []byte{5, 0, 6, 0, 7, 0, 8, 0}
+	r := New(dir, 10, 3*time.Second, audio.SpeechFormat, fakeSource{}, testLogger())
+	r.SaveLast(pcm)
+
+	var path string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) == 1 {
+			path = filepath.Join(dir, entries[0].Name())
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if path == "" {
+		t.Fatal("wake tail file was not created")
+	}
+	if !strings.HasPrefix(filepath.Base(path), wakePrefix) {
+		t.Errorf("name %q, want prefix %q", filepath.Base(path), wakePrefix)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
